@@ -20,7 +20,7 @@ import type {
   RunResult,
   SchedulerHooks,
   VirtualScheduler,
-} from '../src/index';
+} from '../src/index.js';
 
 // ---------------------------------------------------------------------------
 // Module factories

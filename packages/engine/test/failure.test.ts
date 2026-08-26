@@ -1,8 +1,8 @@
 /** Required assertions 6 (partial failure / transitive skip), 12 (output
  *  contract), and 13 (AI stub). */
 import { describe, expect, it } from 'vitest';
-import { createVirtualScheduler, startRun } from '../src/index';
-import { assertDiscipline, edge, eventsOf, finish, graph, mod, nodeSpec, ofType, probe, reg, source } from './helpers';
+import { createVirtualScheduler, startRun } from '../src/index.js';
+import { assertDiscipline, edge, eventsOf, finish, graph, mod, nodeSpec, ofType, probe, reg, source } from './helpers.js';
 
 describe('partial failure (§7.5)', () => {
   it('failed middle node skips its descendants transitively while the independent branch completes', async () => {

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseWorkflow, saveWorkflow } from '../src/index';
+import { parseWorkflow, saveWorkflow } from '../src/index.js';
 
 const GOLDEN = readFileSync(new URL('./fixtures/golden.archspace.yaml', import.meta.url), 'utf8');
 

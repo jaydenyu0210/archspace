@@ -1,8 +1,8 @@
 /** Required assertion 5: retry only for marked-transient errors, max 3
  *  attempts, exact virtual backoff of 500·2^(attempt−1) + seeded jitter. */
 import { describe, expect, it } from 'vitest';
-import { createVirtualScheduler, startRun } from '../src/index';
-import { assertDiscipline, eventsOf, failOnAttempt, finish, graph, nodeSpec, ofType, reg } from './helpers';
+import { createVirtualScheduler, startRun } from '../src/index.js';
+import { assertDiscipline, eventsOf, failOnAttempt, finish, graph, nodeSpec, ofType, reg } from './helpers.js';
 
 const SEED = 42;
 

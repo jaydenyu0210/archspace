@@ -1,8 +1,8 @@
 import { isMap, isSeq, parseDocument, type Document } from 'yaml';
-import type { DocIssue, ParseWorkflowResult } from './types';
-import { extractWorkflow } from './extract';
-import { WorkflowSource } from './source';
-import { UnpaddedFlowSeq, findPair } from './yaml-util';
+import type { DocIssue, ParseWorkflowResult } from './types.js';
+import { extractWorkflow } from './extract.js';
+import { WorkflowSource } from './source.js';
+import { UnpaddedFlowSeq, findPair } from './yaml-util.js';
 
 /**
  * Parse a workflow document (YAML 1.2, core schema — no implicit-typing

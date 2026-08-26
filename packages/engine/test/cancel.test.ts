@@ -1,8 +1,8 @@
 /** Required assertion 7: cancellation — no starts after cancel, queued nodes
  *  skipped, in-flight AbortError → kind cancelled, completed results cached. */
 import { describe, expect, it } from 'vitest';
-import { createRunCache, createVirtualScheduler, startRun } from '../src/index';
-import { assertDiscipline, eventsOf, failOnAttempt, finish, graph, nodeSpec, ofType, reg, sleeper, source } from './helpers';
+import { createRunCache, createVirtualScheduler, startRun } from '../src/index.js';
+import { assertDiscipline, eventsOf, failOnAttempt, finish, graph, nodeSpec, ofType, reg, sleeper, source } from './helpers.js';
 
 describe('cancellation (§7.4)', () => {
   it('cancel mid-run: skips queued nodes, aborts in-flight, keeps completed results', async () => {

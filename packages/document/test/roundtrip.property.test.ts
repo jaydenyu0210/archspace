@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { emitWorkflow, parseWorkflow, saveWorkflow } from '../src/index';
-import { docArb, idArb, normalizeDoc, propRuns } from './helpers';
+import { emitWorkflow, parseWorkflow, saveWorkflow } from '../src/index.js';
+import { docArb, idArb, normalizeDoc, propRuns } from './helpers.js';
 
 describe('round-trip properties (ADR-0013 §2)', () => {
   it('parse(emit(d)) is ok and deep-equals the normalized doc', () => {

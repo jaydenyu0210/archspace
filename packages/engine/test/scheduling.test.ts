@@ -1,8 +1,8 @@
 /** Required assertions 1–3 (branch overlap, lane caps, mcp default) and
  *  8 (demand closure). */
 import { describe, expect, it } from 'vitest';
-import { createVirtualScheduler, startRun } from '../src/index';
-import { assertDiscipline, edge, eventsOf, finish, graph, nodeSpec, ofType, probe, reg, sleeper, source } from './helpers';
+import { createVirtualScheduler, startRun } from '../src/index.js';
+import { assertDiscipline, edge, eventsOf, finish, graph, nodeSpec, ofType, probe, reg, sleeper, source } from './helpers.js';
 
 describe('laned concurrency', () => {
   it('runs two independent same-lane nodes concurrently: 100 virtual ms, not 200', async () => {

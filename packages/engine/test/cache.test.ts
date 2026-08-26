@@ -2,8 +2,8 @@
  *  param edits re-execute only the affected subgraph, clones prevent poisoning. */
 import { describe, expect, it } from 'vitest';
 import type { Value } from '@archspace/node-sdk';
-import { createRunCache, createVirtualScheduler, startRun } from '../src/index';
-import { edge, eventsOf, finish, graph, mod, nodeSpec, ofType, probe, reg, source } from './helpers';
+import { createRunCache, createVirtualScheduler, startRun } from '../src/index.js';
+import { edge, eventsOf, finish, graph, mod, nodeSpec, ofType, probe, reg, source } from './helpers.js';
 
 describe('caching (pure nodes only)', () => {
   it('second run with the same RunCache executes nothing and marks every pure node cached', async () => {

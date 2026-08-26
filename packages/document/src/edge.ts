@@ -1,4 +1,4 @@
-import type { DocEdge } from './types';
+import type { DocEdge } from './types.js';
 
 /**
  * Edges are single-line plain strings: `n_a.result -> n_b.context`

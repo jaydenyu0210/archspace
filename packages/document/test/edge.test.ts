@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { formatEdge, parseEdge, parseWorkflow } from '../src/index';
-import { idArb, portArb, propRuns } from './helpers';
+import { formatEdge, parseEdge, parseWorkflow } from '../src/index.js';
+import { idArb, portArb, propRuns } from './helpers.js';
 
 describe('parseEdge / formatEdge', () => {
   it('are inverse of each other (property)', () => {

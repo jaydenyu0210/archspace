@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseWorkflow, saveWorkflow } from '../src/index';
-import type { WorkflowDoc } from '../src/index';
-import { commentTails } from './helpers';
+import { parseWorkflow, saveWorkflow } from '../src/index.js';
+import type { WorkflowDoc } from '../src/index.js';
+import { commentTails } from './helpers.js';
 
 const FIXTURE = readFileSync(new URL('./fixtures/commented.archspace.yaml', import.meta.url), 'utf8');
 

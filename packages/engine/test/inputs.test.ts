@@ -1,8 +1,8 @@
 /** Required assertion 9: input assembly — coercion, lift, variadic order,
  *  runtime-checked `any` edges, optional inputs. */
 import { describe, expect, it } from 'vitest';
-import { createVirtualScheduler, startRun } from '../src/index';
-import { edge, eventsOf, finish, graph, nodeSpec, ofType, recorder, reg, source } from './helpers';
+import { createVirtualScheduler, startRun } from '../src/index.js';
+import { edge, eventsOf, finish, graph, nodeSpec, ofType, recorder, reg, source } from './helpers.js';
 
 describe('input assembly', () => {
   it('coerces number → text: the receiver gets the string', async () => {

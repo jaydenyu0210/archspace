@@ -1,7 +1,7 @@
 /** Pre-run hard validation (ARCHITECTURE §6.2 checkpoint three + §7.1). */
 import type { NodeManifest, NodeRegistry } from '@archspace/node-sdk';
 import { assignable } from '@archspace/types';
-import { edgeLabel, type EngineEdgeSpec, type EngineGraph, type EngineNodeSpec } from './graph';
+import { edgeLabel, type EngineEdgeSpec, type EngineGraph, type EngineNodeSpec } from './graph.js';
 
 export interface ValidationIssue {
   severity: 'error' | 'warning';

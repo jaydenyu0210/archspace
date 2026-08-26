@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { emitWorkflow, parseWorkflow } from '../src/index';
-import type { WorkflowDoc } from '../src/index';
+import { emitWorkflow, parseWorkflow } from '../src/index.js';
+import type { WorkflowDoc } from '../src/index.js';
 
 const ARCHITECTURE_EXAMPLE: WorkflowDoc = {
   meta: {

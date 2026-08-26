@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { emitWorkflow, parseWorkflow, saveWorkflow } from '../src/index';
-import type { ParseWorkflowResult, WorkflowDoc } from '../src/index';
+import { emitWorkflow, parseWorkflow, saveWorkflow } from '../src/index.js';
+import type { ParseWorkflowResult, WorkflowDoc } from '../src/index.js';
 
 function mustParse(text: string): Extract<ParseWorkflowResult, { ok: true }> {
   const r = parseWorkflow(text);

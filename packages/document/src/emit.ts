@@ -1,8 +1,8 @@
 import { Document, Scalar, isMap, isSeq } from 'yaml';
-import type { DocNode, WorkflowDoc } from './types';
-import { deriveRequires, type DeriveRequiresOptions } from './requires';
-import { formatEdge } from './edge';
-import { STR_OPTS, UnpaddedFlowSeq, hardenScalars, keyString, roundPos } from './yaml-util';
+import type { DocNode, WorkflowDoc } from './types.js';
+import { deriveRequires, type DeriveRequiresOptions } from './requires.js';
+import { formatEdge } from './edge.js';
+import { STR_OPTS, UnpaddedFlowSeq, hardenScalars, keyString, roundPos } from './yaml-util.js';
 
 /**
  * The two-line comment a canonical new file carries above `requires:`

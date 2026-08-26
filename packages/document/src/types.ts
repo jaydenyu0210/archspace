@@ -1,4 +1,4 @@
-import type { WorkflowSource } from './source';
+import type { WorkflowSource } from './source.js';
 
 /** One endpoint of an edge: a node id plus a port name on that node. */
 export interface DocPort {

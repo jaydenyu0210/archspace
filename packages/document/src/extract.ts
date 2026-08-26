@@ -1,8 +1,8 @@
 import { isMap, isSeq, type Document } from 'yaml';
-import type { DocEdge, DocIssue, DocNode, WorkflowDoc } from './types';
-import { parseEdge } from './edge';
-import { deriveRequires } from './requires';
-import { findPair } from './yaml-util';
+import type { DocEdge, DocIssue, DocNode, WorkflowDoc } from './types.js';
+import { parseEdge } from './edge.js';
+import { deriveRequires } from './requires.js';
+import { findPair } from './yaml-util.js';
 
 export interface Extraction {
   /** null when a fatal issue was found. */

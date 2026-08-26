@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { generateNodeId } from '../src/index';
+import { generateNodeId } from '../src/index.js';
 
 describe('generateNodeId', () => {
   afterEach(() => {

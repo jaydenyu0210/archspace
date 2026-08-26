@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AssetRef } from '@archspace/node-sdk';
-import { canonicalJson, createRunCache, hashValue } from '../src/index';
+import { canonicalJson, createRunCache, hashValue } from '../src/index.js';
 
 describe('canonicalJson', () => {
   it('sorts object keys recursively', () => {

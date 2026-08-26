@@ -1,6 +1,6 @@
 /** The virtual scheduler itself: timer ordering, abort, seeded determinism. */
 import { describe, expect, it } from 'vitest';
-import { createVirtualScheduler } from '../src/index';
+import { createVirtualScheduler } from '../src/index.js';
 
 describe('createVirtualScheduler', () => {
   it('fires due timers in order and advances the clock', async () => {

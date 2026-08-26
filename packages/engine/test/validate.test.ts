@@ -1,8 +1,8 @@
 /** Required assertion 10: every §6.2/§7.1 refusal carries the right code, and
  *  startRun refuses to start. */
 import { describe, expect, it } from 'vitest';
-import { GraphValidationError, createVirtualScheduler, startRun, validateGraph } from '../src/index';
-import { edge, graph, mod, nodeSpec, probe, recorder, reg, source } from './helpers';
+import { GraphValidationError, createVirtualScheduler, startRun, validateGraph } from '../src/index.js';
+import { edge, graph, mod, nodeSpec, probe, recorder, reg, source } from './helpers.js';
 
 const codes = (issues: { code: string }[]) => issues.map((i) => i.code);
 

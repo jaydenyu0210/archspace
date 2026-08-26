@@ -16,12 +16,12 @@ export type {
   WorkflowDoc,
   DocIssue,
   ParseWorkflowResult,
-} from './types';
-export { WorkflowSource } from './source';
-export { parseWorkflow } from './parse';
-export { emitWorkflow } from './emit';
-export { saveWorkflow } from './save';
-export { deriveRequires } from './requires';
-export type { DeriveRequiresOptions } from './requires';
-export { generateNodeId } from './id';
-export { parseEdge, formatEdge } from './edge';
+} from './types.js';
+export { WorkflowSource } from './source.js';
+export { parseWorkflow } from './parse.js';
+export { emitWorkflow } from './emit.js';
+export { saveWorkflow } from './save.js';
+export { deriveRequires } from './requires.js';
+export type { DeriveRequiresOptions } from './requires.js';
+export { generateNodeId } from './id.js';
+export { parseEdge, formatEdge } from './edge.js';

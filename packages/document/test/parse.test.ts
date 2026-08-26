@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseWorkflow } from '../src/index';
+import { parseWorkflow } from '../src/index.js';
 
 const MINIMAL = [
   'archspace: 1',

@@ -1,10 +1,10 @@
 import { Pair, Scalar, YAMLMap, YAMLSeq, isMap, isSeq, type Document } from 'yaml';
-import type { WorkflowDoc, WorkflowRequires } from './types';
-import type { WorkflowSource } from './source';
-import { extractWorkflow } from './extract';
-import { deriveRequires, type DeriveRequiresOptions } from './requires';
-import { formatEdge } from './edge';
-import { assertValidDoc, canonicalNodeShape } from './emit';
+import type { WorkflowDoc, WorkflowRequires } from './types.js';
+import type { WorkflowSource } from './source.js';
+import { extractWorkflow } from './extract.js';
+import { deriveRequires, type DeriveRequiresOptions } from './requires.js';
+import { formatEdge } from './edge.js';
+import { assertValidDoc, canonicalNodeShape } from './emit.js';
 import {
   STR_OPTS,
   UnpaddedFlowSeq,
@@ -15,7 +15,7 @@ import {
   mapSet,
   newValueNode,
   roundPos,
-} from './yaml-util';
+} from './yaml-util.js';
 
 const ROOT_ORDER = ['archspace', 'kind', 'meta', 'requires', 'nodes', 'edges', 'layout'] as const;
 const META_ORDER = ['name', 'description'] as const;

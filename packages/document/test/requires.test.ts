@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { deriveRequires } from '../src/index';
-import type { DocNode } from '../src/index';
+import { deriveRequires } from '../src/index.js';
+import type { DocNode } from '../src/index.js';
 
 const node = (id: string, type: string, config: Record<string, unknown> = {}): DocNode => ({
   id,

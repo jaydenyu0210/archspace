@@ -1,8 +1,8 @@
 /** Required assertion 11: event stream discipline + a full golden event log
  *  for a small fixture graph (snapshot with `at` stripped). */
 import { describe, expect, it } from 'vitest';
-import { createVirtualScheduler, startRun, type RunEvent } from '../src/index';
-import { assertDiscipline, edge, eventsOf, finish, graph, mod, nodeSpec, probe, reg, source } from './helpers';
+import { createVirtualScheduler, startRun, type RunEvent } from '../src/index.js';
+import { assertDiscipline, edge, eventsOf, finish, graph, mod, nodeSpec, probe, reg, source } from './helpers.js';
 
 const stripAt = (events: RunEvent[]) => events.map(({ at: _at, ...rest }) => rest);
 

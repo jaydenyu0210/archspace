@@ -1,4 +1,4 @@
-import type { DocNode, WorkflowRequires } from './types';
+import type { DocNode, WorkflowRequires } from './types.js';
 
 /**
  * First dot-segments that the app itself owns, and which therefore never name

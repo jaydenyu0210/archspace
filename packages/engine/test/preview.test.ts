@@ -1,8 +1,8 @@
 /** Previews (§7.6): size caps, kinds by port type and value, log/progress caps. */
 import { describe, expect, it } from 'vitest';
 import { MemoryAssetStore, type Value } from '@archspace/node-sdk';
-import { createVirtualScheduler, startRun } from '../src/index';
-import { eventsOf, finish, graph, mod, nodeSpec, ofType, reg } from './helpers';
+import { createVirtualScheduler, startRun } from '../src/index.js';
+import { eventsOf, finish, graph, mod, nodeSpec, ofType, reg } from './helpers.js';
 
 async function runSingle(module: ReturnType<typeof mod>, config?: Record<string, unknown>, assets?: MemoryAssetStore) {
   const vs = createVirtualScheduler(1);

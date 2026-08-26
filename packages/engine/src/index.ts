@@ -5,7 +5,7 @@
  * ADR-0013's engine suite runs on.
  */
 
-export type { EngineNodeSpec, EngineEdgeSpec, EngineGraph } from './graph';
+export type { EngineNodeSpec, EngineEdgeSpec, EngineGraph } from './graph.js';
 
 export type {
   NodeFailureKind,
@@ -15,18 +15,18 @@ export type {
   RunOptions,
   RunResult,
   RunHandle,
-} from './run';
-export { startRun } from './run';
+} from './run.js';
+export { startRun } from './run.js';
 
-export type { ValuePreview, OutputPreview } from './preview';
+export type { ValuePreview, OutputPreview } from './preview.js';
 
-export type { SchedulerHooks, VirtualScheduler } from './scheduler';
-export { createVirtualScheduler } from './scheduler';
+export type { SchedulerHooks, VirtualScheduler } from './scheduler.js';
+export { createVirtualScheduler } from './scheduler.js';
 
-export type { RunCache } from './cache';
-export { createRunCache } from './cache';
+export type { RunCache } from './cache.js';
+export { createRunCache } from './cache.js';
 
-export type { ValidationIssue } from './validate';
-export { validateGraph, GraphValidationError } from './validate';
+export type { ValidationIssue } from './validate.js';
+export { validateGraph, GraphValidationError } from './validate.js';
 
-export { canonicalJson, hashValue } from './canonical';
+export { canonicalJson, hashValue } from './canonical.js';

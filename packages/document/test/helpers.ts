@@ -1,6 +1,6 @@
 import fc from 'fast-check';
-import { deriveRequires } from '../src/index';
-import type { DocEdge, DocNode, WorkflowDoc } from '../src/index';
+import { deriveRequires } from '../src/index.js';
+import type { DocEdge, DocNode, WorkflowDoc } from '../src/index.js';
 
 /**
  * Normalize fc.jsonValue output for round-trip comparison: -0 becomes 0 (a
