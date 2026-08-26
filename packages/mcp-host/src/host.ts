@@ -635,6 +635,24 @@ function callArguments(tool: McpToolInfo, inputs: Record<string, Value | undefin
  * would turn a clean cancel into a failed run.
  */
 function asCallError(ctx: NodeContext, server: string, tool: string, err: unknown): Error {
+  // Ask the signal before inspecting the error, because the error cannot answer
+  // this. The SDK re-dresses an aborted request as `McpError(-32001)` — the very
+  // code it also raises for its own request timeout — and leaves the word
+  // "AbortError" only inside the message text. So `classifyFailure` sees an
+  // McpError and honestly reports "not cancelled", and the alternative of
+  // matching the message would make a string in someone else's library into our
+  // cancellation contract. The signal is the thing that was actually aborted,
+  // and a timeout leaves it untouched, so it separates the two exactly.
+  if (ctx.signal.aborted) {
+    // Prefer the reason the aborter gave: `controller.abort()` supplies a
+    // DOMException already named AbortError, which is the most faithful error
+    // to hand back. A custom reason is not passed through — the engine keys
+    // cancellation off `name === 'AbortError'` (run.ts), so a differently-named
+    // error would read as a genuine failure.
+    const reason: unknown = ctx.signal.reason;
+    if (reason instanceof Error && reason.name === 'AbortError') return reason;
+    return new DOMException('The operation was aborted', 'AbortError');
+  }
   const failure = classifyFailure(err);
   if (failure.cancelled) return err instanceof Error ? err : new Error(failure.message);
   const callError = new McpCallError(server, tool, `MCP tool "${tool}" on server "${server}" could not be called: ${failure.message}`, {
