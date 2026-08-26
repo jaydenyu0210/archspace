@@ -221,7 +221,18 @@ async function cmdPlugins(): Promise<number> {
       if (p.error !== undefined) console.log(`  error: ${p.error}`);
       console.log('');
     }
-    return list.every((p) => p.state === 'loaded' || p.state === 'disabled') ? 0 : 1;
+    // `needs-consent` is not a fault. It is the state every bundled plugin is
+    // in until a human decides, so exiting non-zero on it meant the very first
+    // `archspace plugins` a user ran reported failure for the plugin the
+    // product itself ships — and any script inventorying plugins broke on a
+    // machine that was working exactly as designed. `doctor`, which is the
+    // command that answers "is this machine healthy", already returns 0 here;
+    // the two disagreed about the same fact.
+    //
+    // `failed` and `incompatible` genuinely are faults: the plugin was meant to
+    // load and did not, and that is worth a non-zero exit for CI to branch on.
+    const faulted = list.filter((p) => p.state === 'failed' || p.state === 'incompatible');
+    return faulted.length > 0 ? 1 : 0;
   } finally {
     await rt.close();
   }
