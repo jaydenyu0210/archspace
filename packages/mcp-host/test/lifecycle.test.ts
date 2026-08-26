@@ -554,3 +554,64 @@ describe('status reporting', () => {
     expect(structuredClone(list)).toEqual(list);
   });
 });
+
+describe('childPids — the synchronous last-resort reap', () => {
+  it('reports nothing for a transport with no child process', async () => {
+    // The in-memory transport stands in for the HTTP case: a real connection,
+    // no child to kill. Reporting a pid here would mean signalling a number
+    // that belongs to some unrelated process.
+    const host = hostFor({ formats: fakeServer({ tools: [echoTool()] }) });
+    await host.configure({ servers: { formats: stdioConfig() } });
+    await host.connect('formats');
+
+    expect(statusOf(host, 'formats').state).toBe('connected');
+    expect(host.childPids()).toEqual([]);
+    await host.close();
+  });
+
+  it('reports the pid a stdio transport exposes, and drops it on close', async () => {
+    // The SDK's StdioClientTransport carries `pid`; the fake does not, so the
+    // pid is grafted onto the transport the seam returns. That is exactly the
+    // shape `stdioChildPid` reads, and reading it structurally rather than by
+    // `instanceof` is what makes this testable without spawning anything.
+    const server = fakeServer({ tools: [echoTool()] });
+    const host = createMcpHost({
+      assets: createMemoryAssetStore(),
+      createTransport: async (name, config) => {
+        const transport = await transportFor({ formats: server })(name, config);
+        return Object.assign(transport, { pid: 424242 });
+      },
+    });
+
+    await host.configure({ servers: { formats: stdioConfig() } });
+    // Not connected yet: lazy connect means there is no child to reap.
+    expect(host.childPids()).toEqual([]);
+
+    await host.connect('formats');
+    expect(host.childPids()).toEqual([424242]);
+
+    await host.close();
+    // After a graceful close the child is already gone; still reporting it
+    // would make the exit handler signal a dead pid, or worse a recycled one.
+    expect(host.childPids()).toEqual([]);
+  });
+
+  it('ignores a transport whose pid is not a usable number', async () => {
+    // `StdioClientTransport.pid` is `number | null` — null before spawn and
+    // after exit. Passing null (or 0) to process.kill would target the whole
+    // process group, which on this path means killing ourselves.
+    const server = fakeServer({ tools: [echoTool()] });
+    const host = createMcpHost({
+      assets: createMemoryAssetStore(),
+      createTransport: async (name, config) => {
+        const transport = await transportFor({ formats: server })(name, config);
+        return Object.assign(transport, { pid: null });
+      },
+    });
+    await host.configure({ servers: { formats: stdioConfig() } });
+    await host.connect('formats');
+
+    expect(host.childPids()).toEqual([]);
+    await host.close();
+  });
+});

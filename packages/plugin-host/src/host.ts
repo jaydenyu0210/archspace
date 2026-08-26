@@ -117,6 +117,15 @@ export interface PluginHost {
   list(): InstalledPluginInfo[];
   setConsent(state: PluginConsentState): Promise<void>;
   nodeModules(): NodeModule[];
+  /**
+   * PIDs of live plugin processes, for a SYNCHRONOUS last-resort reap.
+   *
+   * `close()` is the correct shutdown and runs the documented cancel → SIGTERM
+   * → SIGKILL ladder; this exists only for Node's `exit` event, which must be
+   * synchronous. A promise started there never settles, so `close()` cannot run
+   * on that path and every plugin process would be orphaned.
+   */
+  childPids(): number[];
   onChange(cb: (plugins: InstalledPluginInfo[]) => void): () => void;
   close(): Promise<void>;
 }
@@ -726,6 +735,14 @@ export function createPluginHost(opts: CreatePluginHostOptions): PluginHost {
       }
       consent = stamped;
       await discover();
+    },
+    childPids(): number[] {
+      const pids: number[] = [];
+      for (const record of records.values()) {
+        const pid = record.runtime?.pid;
+        if (pid !== undefined) pids.push(pid);
+      }
+      return pids;
     },
     nodeModules(): NodeModule[] {
       const modules: NodeModule[] = [];

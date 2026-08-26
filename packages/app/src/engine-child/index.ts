@@ -454,13 +454,40 @@ process.parentPort.on('message', (e) => {
   else wireRenderer(port);
 });
 
-/** Best-effort teardown so stdio MCP servers and plugin processes never orphan. */
+/**
+ * Graceful teardown: the SDK's spec shutdown for each MCP transport and the
+ * documented kill ladder for each plugin. This is the path that should run.
+ */
 async function shutdown(): Promise<void> {
   await Promise.allSettled([mcp.close(), plugins?.close() ?? Promise.resolve()]);
 }
+
+/**
+ * The last resort, and the reason it is not simply `shutdown()`.
+ *
+ * Node runs `exit` handlers SYNCHRONOUSLY and terminates the moment they
+ * return: a promise started inside one never settles. This handler used to call
+ * `void shutdown()`, which read as cleanup and did nothing at all — every stdio
+ * MCP server and every plugin process was orphaned, and an orphan reparents to
+ * init and outlives the login session. Signalling pids is the only kind of
+ * cleanup available here, so that is what it does.
+ *
+ * SIGKILL rather than SIGTERM: by the time this runs there is no event loop
+ * left to observe a graceful exit, so a polite signal would just be a signal
+ * nobody waits for. Anything that deserved a graceful shutdown got one on the
+ * SIGTERM path below.
+ */
 process.on('exit', () => {
-  void shutdown();
+  for (const pid of [...mcp.childPids(), ...(plugins?.childPids() ?? [])]) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // Already gone, or never ours. Either way there is nothing to reap and
+      // nothing useful to report — the process is one statement from exiting.
+    }
+  }
 });
+
 process.on('SIGTERM', () => {
   void shutdown().finally(() => process.exit(0));
 });

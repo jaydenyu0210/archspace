@@ -160,6 +160,16 @@ export interface McpHost {
    * (ADR-0009 §5, and see the note in `manifest.ts`).
    */
   toolSchemaHashes(): Record<string, string>;
+  /**
+   * PIDs of live stdio server children, for a SYNCHRONOUS last-resort reap.
+   *
+   * `close()` is the correct shutdown and runs the spec sequence; this exists
+   * only for Node's `exit` event, which must be synchronous — a promise
+   * started there never settles, so `close()` is unreachable on that path and
+   * the children would outlive the login session. HTTP servers contribute
+   * nothing here: there is no child to reap.
+   */
+  childPids(): number[];
   onChange(cb: (servers: McpServerStatus[]) => void): () => void;
   close(): Promise<void>;
 }
@@ -570,6 +580,14 @@ export function createMcpHost(opts: CreateMcpHostOptions): McpHost {
       return modules;
     },
 
+    childPids(): number[] {
+      const pids: number[] = [];
+      for (const record of records.values()) {
+        const pid = stdioChildPid(record.conn);
+        if (pid !== undefined) pids.push(pid);
+      }
+      return pids;
+    },
     toolSchemaHashes(): Record<string, string> {
       const hashes: Record<string, string> = {};
       for (const record of records.values()) {
@@ -634,6 +652,22 @@ function callArguments(tool: McpToolInfo, inputs: Record<string, Value | undefin
  * recognises a cancelled node by `err.name === 'AbortError'`, and wrapping it
  * would turn a clean cancel into a failed run.
  */
+/**
+ * The pid of a connection's stdio child, if it has one.
+ *
+ * Read structurally rather than by importing `StdioClientTransport` and using
+ * `instanceof`: the `Transport` interface the connection holds does not declare
+ * `pid`, only the stdio implementation does, and an `instanceof` check would
+ * bind this file to one concrete transport class from a dependency that is free
+ * to add another. An HTTP transport simply has no `pid` and yields undefined,
+ * which is the correct answer — there is no child process to reap.
+ */
+function stdioChildPid(conn: OpenConnection | undefined): number | undefined {
+  if (conn === undefined) return undefined;
+  const pid: unknown = (conn.transport as { pid?: unknown }).pid;
+  return typeof pid === 'number' && pid > 0 ? pid : undefined;
+}
+
 function asCallError(ctx: NodeContext, server: string, tool: string, err: unknown): Error {
   // Ask the signal before inspecting the error, because the error cannot answer
   // this. The SDK re-dresses an aborted request as `McpError(-32001)` — the very
