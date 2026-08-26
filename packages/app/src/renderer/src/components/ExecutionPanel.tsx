@@ -33,6 +33,20 @@ function eventLine(e: RunEvent, startedAt: number | null, nodeLabel: (id: string
   }
 }
 
+/**
+ * A table cell as text. Cells are `Value`, so one can legitimately hold an
+ * object or a list — an MCP tool's structured result routinely does. `String()`
+ * renders those as "[object Object]", which in a preview is indistinguishable
+ * from a node that genuinely produced that string. JSON is wrong-looking in a
+ * way the reader can act on.
+ */
+function cellText(v: unknown): string {
+  if (v === undefined || v === null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return JSON.stringify(v);
+}
+
 function eventClass(e: RunEvent): string {
   switch (e.type) {
     case 'node:failed': return 'log-err';
@@ -65,7 +79,7 @@ function PreviewBlock({ preview }: { preview: OutputPreview }) {
             </thead>
             <tbody>
               {p.rows.map((row, i) => (
-                <tr key={i}>{p.columns.map((c) => <td key={c.id}>{String(row[c.id] ?? '')}</td>)}</tr>
+                <tr key={i}>{p.columns.map((c) => <td key={c.id}>{cellText(row[c.id])}</td>)}</tr>
               ))}
             </tbody>
           </table>

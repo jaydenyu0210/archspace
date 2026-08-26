@@ -107,7 +107,11 @@ describe('aec.parking_estimate', () => {
     const run = await runNode(parkingEstimateNode, { inputs: { brief: await brief() } });
     const estimate = run.outputs.estimate as unknown as ParkingEstimate;
     const table = run.outputs.breakdown as unknown as TableValue;
-    const byCategory = new Map(table.rows.map((r) => [String(r.category), Number(r.spaces)]));
+    // The category column is declared text; asserting that is stronger than
+    // coercing it, and a row that ever stopped being text would fail here
+    // rather than silently key the map on "[object Object]".
+    for (const r of table.rows) expect(typeof r.category, JSON.stringify(r)).toBe('string');
+    const byCategory = new Map(table.rows.map((r) => [r.category as string, Number(r.spaces)]));
     expect(byCategory.get('Total')).toBe(estimate.spaces.total);
     expect(byCategory.get('Standard')).toBe(estimate.spaces.standard);
     expect(byCategory.get('Accessible')).toBe(estimate.spaces.accessible);

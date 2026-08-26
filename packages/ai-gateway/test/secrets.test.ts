@@ -63,7 +63,9 @@ function renderFully(value: unknown, depth = 0): string {
     return [value.name, value.message, value.stack ?? '', own ?? '', renderFully(value.cause, depth + 1)].join('\n');
   }
   if (value === undefined) return '';
-  return JSON.stringify(value) ?? String(value);
+  // JSON.stringify returns undefined only for a function or a symbol, which
+  // no config value can be; naming that case beats String()-ing an object.
+  return JSON.stringify(value) ?? '[unserializable]';
 }
 
 describe('the key does reach the provider — otherwise this file proves nothing', () => {

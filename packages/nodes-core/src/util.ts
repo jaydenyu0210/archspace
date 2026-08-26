@@ -94,6 +94,22 @@ export function requireInput<T>(inputs: Inputs, id: string, nodeType: string): T
  * Cast a typed result shape to a wire Value. The shapes in shapes.ts are
  * JSON-safe by construction; TS interfaces merely lack index signatures.
  */
+/**
+ * A `table` cell rendered as text.
+ *
+ * Cells are `Value`, so a cell can legitimately hold an object or a list — an
+ * upstream node or an MCP tool is free to put one there. Bare `String()` turns
+ * those into "[object Object]", which then travels into a room id, a CSV
+ * column or a report as though it were data. JSON is the honest rendering: it
+ * is wrong-looking in a way a reader can act on.
+ */
+export function cellText(v: Value | undefined): string {
+  if (v === undefined || v === null) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return JSON.stringify(v);
+}
+
 export function toValue<T>(v: T): Value {
   return v as unknown as Value;
 }

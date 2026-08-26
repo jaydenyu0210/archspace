@@ -150,7 +150,7 @@ export function echoTool(name = 'echo'): FakeTool {
       required: ['message'],
     },
     handle: (args) => ({
-      content: [{ type: 'text', text: String(args.message ?? '') }],
+      content: [{ type: 'text', text: typeof args.message === 'string' ? args.message : JSON.stringify(args.message ?? '') }],
       structuredContent: { echoed: args.message ?? null },
     }),
   };

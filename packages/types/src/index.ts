@@ -91,11 +91,24 @@ function resolve(t: ParsedType | string): ParsedType | null {
   return typeof t === 'string' ? parsePortType(t) : t;
 }
 
+/**
+ * A type as it should appear in a message, whichever form the caller passed.
+ *
+ * `String()` on a `ParsedType` yields "[object Object]". Today that is
+ * unreachable — `resolve` only returns null for a string it failed to parse —
+ * but the reason is three lines away from the message, and this is the text a
+ * user reads when a connection is refused. Rendering it properly costs one
+ * call and stops being a latent trap.
+ */
+function describeType(t: ParsedType | string): string {
+  return typeof t === 'string' ? t : formatPortType(t);
+}
+
 export function assignable(fromT: ParsedType | string, toT: ParsedType | string): Assignability {
   const from = resolve(fromT);
   const to = resolve(toT);
-  if (!from) return { ok: false, reason: `invalid source type "${String(fromT)}"` };
-  if (!to) return { ok: false, reason: `invalid target type "${String(toT)}"` };
+  if (!from) return { ok: false, reason: `invalid source type "${describeType(fromT)}"` };
+  if (!to) return { ok: false, reason: `invalid target type "${describeType(toT)}"` };
 
   // `any` connects to everything, both directions, checked at run time.
   if (from.kind === 'any' || to.kind === 'any') return { ok: true, kind: 'unchecked' };

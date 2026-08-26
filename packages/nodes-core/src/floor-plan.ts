@@ -19,7 +19,7 @@ import type {
   ProjectBrief,
   TableValue,
 } from './shapes.js';
-import { hex8, mulberry32, requireInput, round2, round3, sleep, toValue } from './util.js';
+import { cellText, hex8, mulberry32, requireInput, round2, round3, sleep, toValue } from './util.js';
 
 export interface GenerateFloorPlanParams {
   seed: number;
@@ -181,9 +181,9 @@ export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
         const id = `r_${level}_${roomN++}`;
         rooms.push({
           id,
-          spaceId: String(row.space_id),
-          name: String(row.name),
-          function: String(row.function),
+          spaceId: cellText(row.space_id),
+          name: cellText(row.name),
+          function: cellText(row.function),
           polygon: [
             [x0, y0],
             [x1, y0],

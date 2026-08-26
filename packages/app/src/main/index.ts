@@ -12,6 +12,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   MessageChannelMain,
@@ -423,17 +424,34 @@ ipcMain.handle('shell:open-external', async (_e, url: string) => {
 
 // ---- lifecycle -------------------------------------------------------------
 
-app.whenReady().then(() => {
-  buildMenu();
-  spawnEngine();
-  createWindow();
-  // After the window, on purpose: the first thing this app does with the
-  // user's network should be showing them their workflow, not polling a feed.
-  initAutoUpdate();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+app
+  .whenReady()
+  .then(() => {
+    buildMenu();
+    spawnEngine();
+    createWindow();
+    // After the window, on purpose: the first thing this app does with the
+    // user's network should be showing them their workflow, not polling a feed.
+    initAutoUpdate();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  })
+  .catch((err: unknown) => {
+    // Startup is the one failure with nothing left to fall back on: there is no
+    // window to draw a notice in and no renderer to receive one. Without this
+    // the whole boot path was a floating promise, so a throw in spawnEngine or
+    // createWindow became an unhandled rejection — a silent quit, or a crash
+    // report naming a line the user cannot act on. showErrorBox is the one
+    // dialog that works before any window exists.
+    dialog.showErrorBox(
+      'Archspace could not start',
+      `${err instanceof Error ? err.message : String(err)}\n\n` +
+        'This is a bug. Reinstalling, or removing the plugins folder in the ' +
+        'application support directory, is the usual way past it.',
+    );
+    app.quit();
   });
-});
 
 app.on('before-quit', () => {
   quitting = true;

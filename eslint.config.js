@@ -3,11 +3,21 @@
  *
  * Shape rationale:
  *
- * 1. **Not type-aware.** typescript-eslint's type-checked presets would need a
- *    project service spanning eleven packages with four different tsconfigs in
- *    `packages/app` alone, and they duplicate what `pnpm typecheck` already
- *    proves. Lint here is for the things the compiler cannot see; correctness
- *    is `tsc`'s job. This keeps `pnpm lint` a few seconds rather than a minute.
+ * 1. **Type-aware, but only just.** The full type-checked presets are still off:
+ *    they report ~200 findings here, nearly all of them stylistic
+ *    (`no-unnecessary-type-assertion`, `require-await`), which is exactly the
+ *    noise a contributor learns to ignore. What IS on is a four-rule layer that
+ *    catches what `tsc` provably cannot, and it earned its place — enabling it
+ *    found a floating promise wrapping the app's entire startup, and a
+ *    `String()` on a param value that rendered "[object Object]" into an
+ *    editable input, where the next keystroke wrote it back over the user's
+ *    structured data.
+ *
+ *    It needs type information, which needs a project per file — hence
+ *    `packages/app/tsconfig.json`, a references-only file that exists purely so
+ *    the project service can find the three real configs. It costs about four
+ *    seconds; the earlier note that this would take a minute predates
+ *    `projectService`.
  *
  * 2. **CommonJS on purpose.** The repo is ESM everywhere, but the root
  *    package.json has no `"type": "module"`, so ESLint loads this file as CJS.
@@ -40,6 +50,29 @@ module.exports = tseslint.config(
 
   js.configs.recommended,
   ...tseslint.configs.recommended,
+
+  {
+    // The type-aware layer. Four rules, each catching a class the compiler
+    // accepts and a human then has to find by reading:
+    //
+    //  - `no-floating-promises` / `no-misused-promises`: an un-awaited promise
+    //    is a silent failure, and both were at zero when this was turned on, so
+    //    the rule is a ratchet rather than a backlog.
+    //  - `await-thenable`: an `await` on a non-promise reads as sequencing that
+    //    is not happening.
+    //  - `no-base-to-string`: "[object Object]" reaching a user. It found three
+    //    real instances, one of which was destroying data on edit.
+    files: ['**/*.ts', '**/*.tsx'],
+    languageOptions: {
+      parserOptions: { projectService: true, tsconfigRootDir: __dirname },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/await-thenable': 'error',
+      '@typescript-eslint/no-base-to-string': 'error',
+    },
+  },
 
   {
     // Everything below the Electron shell runs in plain Node (ARCHITECTURE

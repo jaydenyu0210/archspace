@@ -59,8 +59,15 @@ export function deriveRequires(nodes: DocNode[], options: DeriveRequiresOptions 
     if (first === 'mcp') {
       if (segments.length > 1 && segments[1] !== '') mcp.add(segments[1]);
     } else if (first === 'ai') {
+      // Only a string names a profile. `config` is Record<string, unknown>
+      // and hand-editable, so anything else — a mapping a user mistyped, a
+      // number — used to reach `String()` and put a value like
+      // "[object Object]" into the requires block of the SAVED document,
+      // where it would then be reported as a requirement this machine does
+      // not satisfy. A malformed profile is treated as absent, which is the
+      // same thing the gateway does with it.
       const profile = node.config?.['profile'];
-      ai.add(profile === undefined || profile === null ? 'default' : String(profile));
+      ai.add(typeof profile === 'string' && profile.trim() !== '' ? profile : 'default');
     }
 
     const owner = namespaces.find(([ns]) => node.type.startsWith(`${ns}.`));

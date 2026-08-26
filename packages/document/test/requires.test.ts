@@ -31,6 +31,21 @@ describe('deriveRequires', () => {
     });
   });
 
+  it('treats a profile that is not a usable string as absent', () => {
+    // `config` is hand-editable and typed Record<string, unknown>, so these
+    // shapes are reachable from a file someone wrote. Each used to be run
+    // through String() and written into the requires block of the SAVED
+    // document — "[object Object]" among them — where it would then be
+    // reported back as a requirement the machine does not satisfy.
+    for (const profile of [{ nested: true }, ['a'], 42, true, '', '   ', null]) {
+      expect(deriveRequires([node('n_a', 'ai.generate_text', { profile })]), JSON.stringify(profile)).toEqual({
+        mcp: [],
+        ai: ['default'],
+        plugins: [],
+      });
+    }
+  });
+
   it('non-reserved first segments are plugin namespaces', () => {
     expect(deriveRequires([node('n_a', 'acme.pointcloud.load')])).toEqual({
       mcp: [],
