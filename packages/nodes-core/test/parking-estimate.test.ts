@@ -1,17 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { isValueOfType } from '@archspace/types';
+import type { Value } from '@archspace/node-sdk';
 import { runNode } from '@archspace/node-sdk/testkit';
 import { parkingEstimateNode } from '../src/parking-estimate.js';
 import { projectBriefNode } from '../src/project-brief.js';
-import type { ParkingEstimate, ProjectBrief, TableValue } from '../src/shapes.js';
+import type { ParkingEstimate, TableValue } from '../src/shapes.js';
 
-async function brief(params: Record<string, unknown> = {}): Promise<ProjectBrief> {
+/**
+ * The brief as it travels on a wire. Every caller below passes it straight into
+ * another node's `inputs`, which take `Value` — so annotating it `ProjectBrief`
+ * would buy nothing and cost a cast back at each use. The `as unknown as` view
+ * the other suites use is for *reading* fields off an output; this is the
+ * opposite direction.
+ */
+async function brief(params: Record<string, unknown> = {}): Promise<Value> {
   const run = await runNode(projectBriefNode, { params });
-  return run.outputs.brief as unknown as ProjectBrief;
+  return run.outputs.brief;
 }
 
 /** A minimal constraints stand-in — only the field this node reads. */
-function constraintsWithRatio(minParkingPer100M2: number): Record<string, unknown> {
+function constraintsWithRatio(minParkingPer100M2: number): Value {
   return { limits: { minParkingPer100M2 } };
 }
 

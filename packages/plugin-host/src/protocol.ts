@@ -218,6 +218,16 @@ export function toBase64(bytes: Uint8Array): string {
   return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
 }
 
-export function fromBase64(text: string): Uint8Array {
+/**
+ * The `<ArrayBuffer>` argument is load-bearing and not decoration. This module
+ * is type-pulled into the renderer's compile (via `app/src/shared/protocol.ts`),
+ * where `lib.dom` is in scope and `BodyInit` accepts a `BufferSource` — which
+ * excludes a buffer that might be a `SharedArrayBuffer`. Bare `Uint8Array`
+ * widens to `ArrayBufferLike` under TS ≥5.7 and so fails to satisfy it, even
+ * though copying out of a `Buffer` can only ever produce a plain `ArrayBuffer`.
+ * Pinning it here keeps every caller assignable under both libs, instead of
+ * making each one cast at the point of use.
+ */
+export function fromBase64(text: string): Uint8Array<ArrayBuffer> {
   return new Uint8Array(Buffer.from(text, 'base64'));
 }

@@ -506,10 +506,17 @@ export function createPluginHost(opts: CreatePluginHostOptions): PluginHost {
             ...signalOf(ctx),
           });
           const body = new Uint8Array(await response.arrayBuffer());
+          // `forEach` rather than `[...headers.entries()]`: this file is
+          // type-pulled into the renderer's DOM-lib compile, and DOM's `Headers`
+          // only gains `entries()` from `lib.dom.iterable`. `forEach` is the one
+          // iteration method both undici's and the DOM's `Headers` declare, so
+          // it is the portable spelling — not a stylistic preference.
+          const headers: [string, string][] = [];
+          response.headers.forEach((value, key) => headers.push([key, value]));
           const result: FetchResult = {
             status: response.status,
             statusText: response.statusText,
-            headers: [...response.headers.entries()],
+            headers,
             bodyBase64: toBase64(body),
           };
           return result;
