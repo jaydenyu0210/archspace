@@ -1,6 +1,15 @@
 /**
- * Renderer state: the open document as a live graph, edit history, and the
- * current run folded from the engine event stream (§7.6 — events in, UI out).
+ * Renderer state: the open document as a live graph, edit history, the current
+ * run folded from the engine event stream (§7.6 — events in, UI out), and the
+ * settings surface.
+ *
+ * The three status arrays (`mcpServers`, `plugins`, `aiProfiles`) are MIRRORS,
+ * not models: the engine child owns the MCP pool, the plugin host and the AI
+ * gateway (§3.2), pushes a whole snapshot whenever any of them changes, and
+ * this store only ever replaces what it was handed. Nothing here edits a
+ * status in place after an action "succeeds" — an optimistic write would let
+ * the panels claim a server is connected while the engine still says otherwise,
+ * which is the same class of lie the honesty rule exists to prevent.
  */
 import { create } from 'zustand';
 import {
@@ -14,6 +23,9 @@ import {
 } from '@xyflow/react';
 import { assignable } from '@archspace/types';
 import type { NodeManifest } from '@archspace/node-sdk';
+import type { ProfileStatus } from '@archspace/ai-gateway';
+import type { McpServerStatus } from '@archspace/mcp-host';
+import type { InstalledPluginInfo } from '@archspace/plugin-host';
 import { generateNodeId, type DocIssue, type WorkflowDoc } from '@archspace/document';
 import type { EngineGraph, RunEvent, RunStats, RunStatus, OutputPreview, ValidationIssue } from '@archspace/engine';
 
@@ -56,6 +68,9 @@ export interface Notice {
   text: string;
 }
 
+/** The four settings sections, in tab order. Also the four native menu items. */
+export type SettingsTab = 'mcp' | 'ai' | 'plugins' | 'autodesk';
+
 interface Snapshot {
   nodes: AppNode[];
   edges: AppEdge[];
@@ -93,6 +108,14 @@ export interface StoreState {
   manifestByType: Record<string, NodeManifest>;
   engineReady: boolean;
 
+  /** Engine-owned status, mirrored (see the file header). Empty until pushed. */
+  mcpServers: McpServerStatus[];
+  plugins: InstalledPluginInfo[];
+  aiProfiles: ProfileStatus[];
+
+  settingsOpen: boolean;
+  settingsTab: SettingsTab;
+
   meta: { name: string; description?: string };
   nodes: AppNode[];
   edges: AppEdge[];
@@ -111,8 +134,15 @@ export interface StoreState {
   inspectedNodeId: string | null;
 
   setManifests(manifests: NodeManifest[]): void;
+  setMcpServers(servers: McpServerStatus[]): void;
+  setPlugins(plugins: InstalledPluginInfo[]): void;
+  setAiProfiles(profiles: ProfileStatus[]): void;
   notify(kind: Notice['kind'], text: string): void;
   dismissNotice(id: number): void;
+
+  openSettings(tab: SettingsTab): void;
+  setSettingsTab(tab: SettingsTab): void;
+  closeSettings(): void;
 
   pushHistory(tag?: string): void;
   undo(): void;
@@ -146,6 +176,13 @@ export const useStore = create<StoreState>((set, get) => ({
   manifestByType: {},
   engineReady: false,
 
+  mcpServers: [],
+  plugins: [],
+  aiProfiles: [],
+
+  settingsOpen: false,
+  settingsTab: 'mcp',
+
   meta: { name: 'Untitled workflow' },
   nodes: [],
   edges: [],
@@ -168,6 +205,17 @@ export const useStore = create<StoreState>((set, get) => ({
       manifestByType: Object.fromEntries(manifests.map((m) => [m.type, m])),
       engineReady: true,
     }),
+
+  setMcpServers: (mcpServers) => set({ mcpServers }),
+  setPlugins: (plugins) => set({ plugins }),
+  setAiProfiles: (aiProfiles) => set({ aiProfiles }),
+
+  // Re-opening on a different tab keeps whatever the panels have already
+  // fetched; the dialog is unmounted on close, so panel-local state is not
+  // stale, only the engine mirrors above survive — and those are live.
+  openSettings: (settingsTab) => set({ settingsOpen: true, settingsTab }),
+  setSettingsTab: (settingsTab) => set({ settingsTab }),
+  closeSettings: () => set({ settingsOpen: false }),
 
   notify: (kind, text) => {
     const id = ++noticeSeq;
@@ -541,6 +589,11 @@ export const useStore = create<StoreState>((set, get) => ({
 
   engineDown: () => {
     const s = get();
+    // Everything these arrays described — open MCP sessions, running plugin
+    // children, a configured gateway — belonged to the process that just died.
+    // Keeping the last snapshot on screen would draw a dead server as
+    // "connected"; the replacement child pushes a fresh snapshot on `hello`.
+    set({ mcpServers: [], plugins: [], aiProfiles: [] });
     if (s.run.running) {
       set({ run: { ...s.run, running: false, status: 'failed' } });
       s.notify('error', 'The engine process crashed and was restarted. The run was aborted.');

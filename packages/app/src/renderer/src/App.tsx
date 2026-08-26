@@ -5,6 +5,7 @@ import { Canvas } from './components/Canvas';
 import { Inspector } from './components/Inspector';
 import { ExecutionPanel } from './components/ExecutionPanel';
 import { Notices } from './components/Notices';
+import { Settings } from './components/Settings';
 import { useStore } from './store';
 import { cancelWorkflowRun, startWorkflowRun } from './engine-client';
 import type { MenuAction } from '../../shared/protocol';
@@ -18,6 +19,7 @@ function isEditingText(target: EventTarget | null): boolean {
 
 export default function App() {
   const dirty = useStore((s) => s.dirty);
+  const settingsOpen = useStore((s) => s.settingsOpen);
   const savingRef = useRef(false);
 
   const doSave = useCallback(async (saveAs: boolean) => {
@@ -80,6 +82,21 @@ export default function App() {
         case 'redo': store.redo(); break;
         case 'run': startWorkflowRun(); break;
         case 'cancel-run': cancelWorkflowRun(); break;
+        case 'settings-mcp': store.openSettings('mcp'); break;
+        case 'settings-ai': store.openSettings('ai'); break;
+        case 'settings-plugins': store.openSettings('plugins'); break;
+        case 'settings-autodesk': store.openSettings('autodesk'); break;
+        default: {
+          // Not decoration. The four settings items above shipped in the native
+          // menu with no case here, so choosing them did nothing at all and
+          // said nothing about it — a menu item that silently no-ops reads as a
+          // broken app. The `never` makes the compiler refuse a new MenuAction
+          // that nobody wired up, and the notice makes it visible if one ever
+          // reaches a user anyway.
+          const unhandled: never = action;
+          store.notify('warn', `The menu action "${String(unhandled)}" is not wired up in this window.`);
+          break;
+        }
       }
     });
   }, [doNew, doOpen, doSave]);
@@ -88,6 +105,9 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isEditingText(e.target)) return;
+      // While settings is open it owns the screen: ⌘C there means "copy this
+      // text", not "copy the selected nodes on the canvas behind me".
+      if (useStore.getState().settingsOpen) return;
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
       const store = useStore.getState();
@@ -118,6 +138,9 @@ export default function App() {
       </div>
       <ExecutionPanel />
       <Notices />
+      {/* Mounted only while open, so focus capture/restore and the panels'
+          own fetches run once per opening rather than once per app launch. */}
+      {settingsOpen && <Settings />}
     </div>
   );
 }
