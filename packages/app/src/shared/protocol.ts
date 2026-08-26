@@ -49,7 +49,14 @@ export type EngineRequest =
 // ---- engine child → renderer ----------------------------------------------
 
 export type EngineResponse =
-  | { t: 'manifests'; manifests: NodeManifest[] }
+  /**
+   * The registry as it stands, plus the schema hash of every MCP tool node in
+   * it (`nodeType` → hash). The hashes ride along with the manifests because
+   * they change together and for the same reason — a `tools/list` that came
+   * back different — so delivering them apart would let the renderer pin a
+   * hash against a manifest it no longer has (ADR-0009 §5).
+   */
+  | { t: 'manifests'; manifests: NodeManifest[]; schemaHashes: Record<string, string> }
   | { t: 'event'; runId: string; event: RunEvent }
   | { t: 'run-rejected'; runId: string; issues: ValidationIssue[] }
   | { t: 'validated'; requestId: number; issues: ValidationIssue[] }

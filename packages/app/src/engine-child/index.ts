@@ -196,7 +196,7 @@ function buildRegistry(): NodeRegistry {
 
 function refreshRegistry(): void {
   registry = buildRegistry();
-  toRenderer({ t: 'manifests', manifests: registry.manifests() });
+  toRenderer({ t: 'manifests', manifests: registry.manifests(), schemaHashes: mcp.toolSchemaHashes() });
 }
 
 function pushMcpStatus(servers: McpServerStatus[]): void {
@@ -253,7 +253,7 @@ function wireRenderer(port: MessagePortMain): void {
 async function handleRendererMessage(msg: EngineRequest): Promise<void> {
   switch (msg.t) {
     case 'hello':
-      toRenderer({ t: 'manifests', manifests: registry.manifests() });
+      toRenderer({ t: 'manifests', manifests: registry.manifests(), schemaHashes: mcp.toolSchemaHashes() });
       pushMcpStatus(mcp.list());
       if (plugins !== null) pushPluginStatus(plugins.list());
       toRenderer({ t: 'ai-status', profiles: await ai.listProfiles() });

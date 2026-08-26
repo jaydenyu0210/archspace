@@ -2,13 +2,14 @@
   "name": "@archspace/app",
   "version": "0.1.0",
   "private": true,
-  "description": "Archspace desktop shell: Electron main + renderer (ARCHITECTURE §3)",
+  "description": "Archspace desktop shell: Electron main + renderer (ARCHITECTURE \u00a73)",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "dist": "electron-vite build && electron-builder --mac --universal --publish never",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.preload.json && tsc --noEmit -p tsconfig.web.json"
   },
   "dependencies": {
@@ -38,6 +39,7 @@
     "electron-vite": "^5.0.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "vitest": "^3.2.7"
   }
 }

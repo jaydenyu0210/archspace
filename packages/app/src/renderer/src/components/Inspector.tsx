@@ -12,6 +12,7 @@
  * entries verbatim (ADR-0004), and a user opening a colleague's workflow needs
  * to know that missing a plugin has not silently eaten their data.
  */
+import { driftedNodeIds } from '../drift';
 import { useStore } from '../store';
 import { ParamField } from './ParamField';
 
@@ -23,6 +24,9 @@ export function Inspector() {
   const setMeta = useStore((s) => s.setMeta);
   const docIssues = useStore((s) => s.docIssues);
   const rejectedIssues = useStore((s) => s.run.rejectedIssues);
+  const nodes = useStore((s) => s.nodes);
+  const schemaHashes = useStore((s) => s.schemaHashes);
+  const drifted = driftedNodeIds(nodes, schemaHashes);
 
   if (selected.length === 1) {
     const node = selected[0];
@@ -37,6 +41,16 @@ export function Inspector() {
               {manifest.type} v{manifest.version} · {node.id}
             </div>
             <div className="insp-node-desc">{manifest.description}</div>
+            {drifted.has(node.id) && (
+              // Detected, not absorbed (ADR-0009 §5). The params below were
+              // filled in against the older schema, so they are shown exactly
+              // as saved and nothing is re-mapped for the user.
+              <div className="issue issue-warning">
+                The tool this node calls has changed its schema since the node was added.
+                Its parameters are shown as saved — check them against the fields below,
+                and re-save to accept the new schema.
+              </div>
+            )}
             <div className="insp-divider" />
             {Object.entries(manifest.params.properties ?? {}).map(([key, prop]) => (
               <ParamField

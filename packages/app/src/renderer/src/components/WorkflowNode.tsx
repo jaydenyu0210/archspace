@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { isNodeDrifted } from '../drift';
 import { useStore, type AppNode } from '../store';
 import { portColorVar } from '../ports';
 
@@ -10,6 +11,11 @@ import { portColorVar } from '../ports';
 export const WorkflowNode = memo(function WorkflowNode({ id, data, selected }: NodeProps<AppNode>) {
   const manifest = useStore((s) => s.manifestByType[data.typeId]);
   const status = useStore((s) => s.run.nodeStatus[id]);
+  // The whole map rather than one lookup, because `isNodeDrifted` is the one
+  // authority on what drift means (drift.ts) and a second inline comparison
+  // here is exactly how two answers to the same question start to disagree.
+  const schemaHashes = useStore((s) => s.schemaHashes);
+  const driftedNode = isNodeDrifted({ id, data }, schemaHashes);
 
   if (!manifest) {
     // Placeholder behavior (§4): unknown types render, never destroy data.
@@ -39,6 +45,11 @@ export const WorkflowNode = memo(function WorkflowNode({ id, data, selected }: N
         {phase && <span className={`node-chip chip-${phase}`}>{statusText}</span>}
       </div>
       <div className="node-typeid">{manifest.type} · v{manifest.version}</div>
+      {driftedNode && (
+        <div className="node-drift" title="The tool's schema changed since this node was added. Select it to review.">
+          tool schema changed — review
+        </div>
+      )}
 
       <div className="node-ports">
         <div className="ports-in">

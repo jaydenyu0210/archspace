@@ -33,6 +33,14 @@ export type AppNodeData = {
   typeId: string;
   version: number;
   config: Record<string, unknown>;
+  /**
+   * The hash of the tool schema this node was authored against (ADR-0009 §5).
+   * Set for MCP nodes at creation and carried verbatim through load and save;
+   * `undefined` for every other node type, and for MCP nodes in documents
+   * written before it was pinned. `drift.ts` compares it against the live
+   * hash — pinning it is what makes drift detectable at all.
+   */
+  schemaHash?: string;
   [key: string]: unknown;
 };
 export type AppNode = Node<AppNodeData>;
@@ -106,6 +114,8 @@ function snap(state: { nodes: AppNode[]; edges: AppEdge[]; meta: Snapshot['meta'
 export interface StoreState {
   manifests: NodeManifest[];
   manifestByType: Record<string, NodeManifest>;
+  /** Live tool-schema hash per MCP node type, as the engine last reported it. */
+  schemaHashes: Record<string, string>;
   engineReady: boolean;
 
   /** Engine-owned status, mirrored (see the file header). Empty until pushed. */
@@ -133,7 +143,7 @@ export interface StoreState {
   /** Node id whose outputs the execution panel is inspecting. */
   inspectedNodeId: string | null;
 
-  setManifests(manifests: NodeManifest[]): void;
+  setManifests(manifests: NodeManifest[], schemaHashes: Record<string, string>): void;
   setMcpServers(servers: McpServerStatus[]): void;
   setPlugins(plugins: InstalledPluginInfo[]): void;
   setAiProfiles(profiles: ProfileStatus[]): void;
@@ -174,6 +184,7 @@ export interface StoreState {
 export const useStore = create<StoreState>((set, get) => ({
   manifests: [],
   manifestByType: {},
+  schemaHashes: {},
   engineReady: false,
 
   mcpServers: [],
@@ -199,10 +210,11 @@ export const useStore = create<StoreState>((set, get) => ({
   notices: [],
   inspectedNodeId: null,
 
-  setManifests: (manifests) =>
+  setManifests: (manifests, schemaHashes) =>
     set({
       manifests,
       manifestByType: Object.fromEntries(manifests.map((m) => [m.type, m])),
+      schemaHashes,
       engineReady: true,
     }),
 
@@ -374,7 +386,14 @@ export const useStore = create<StoreState>((set, get) => ({
           type: 'archnode',
           position,
           selected: true,
-          data: { typeId, version: manifest.version, config: {} },
+          data: {
+            typeId,
+            version: manifest.version,
+            config: {},
+            // Pinned at authoring time — the only moment at which "the schema
+            // this node was written against" means anything.
+            ...(s.schemaHashes[typeId] !== undefined ? { schemaHash: s.schemaHashes[typeId] } : {}),
+          },
         },
       ],
       dirty: true,
@@ -447,7 +466,15 @@ export const useStore = create<StoreState>((set, get) => ({
       id: n.id,
       type: 'archnode',
       position: doc.layout[n.id] ?? { x: 120 + (i % 4) * 300, y: 120 + Math.floor(i / 4) * 220 },
-      data: { typeId: n.type, version: n.version, config: structuredClone(n.config) },
+      data: {
+        typeId: n.type,
+        version: n.version,
+        config: structuredClone(n.config),
+        // Carried verbatim. The hash whoever authored the document pinned is
+        // the baseline drift is measured from, so this machine must not re-pin
+        // it to whatever its own servers happen to serve today.
+        ...(n.schemaHash !== undefined ? { schemaHash: n.schemaHash } : {}),
+      },
     }));
     const edges: AppEdge[] = doc.edges.map((e) => ({
       id: edgeId(e.from.node, e.from.port, e.to.node, e.to.port),
@@ -494,6 +521,7 @@ export const useStore = create<StoreState>((set, get) => ({
         id: n.id,
         type: n.data.typeId,
         version: n.data.version,
+        ...(n.data.schemaHash !== undefined ? { schemaHash: n.data.schemaHash } : {}),
         config: structuredClone(n.data.config),
       })),
       edges: s.edges.map((e) => ({

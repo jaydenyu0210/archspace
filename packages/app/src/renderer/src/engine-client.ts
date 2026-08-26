@@ -93,7 +93,7 @@ function handleResponse(msg: EngineResponse): void {
   const store = useStore.getState();
   switch (msg.t) {
     case 'manifests':
-      store.setManifests(msg.manifests);
+      store.setManifests(msg.manifests, msg.schemaHashes);
       // The registry only changes when the config lands, an MCP server's tools
       // change, or the plugin set changes — the same moments the status panels
       // care about. Asking again here is what fills the plugins panel at all:

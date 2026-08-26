@@ -388,6 +388,17 @@ body {
   color: var(--warn);
   max-width: 230px;
 }
+/* Schema drift (ADR-0009 §5). Warn-coloured and never dimmed: an unreviewed
+   node still runs, so this is a "look at me", not a disabled state. */
+.node-drift {
+  margin: 0 10px 8px 13px;
+  padding: 3px 6px;
+  border-left: 2px solid var(--warn);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--warn);
+  max-width: 230px;
+}
 
 /* ---- inspector ---------------------------------------------------------- */
 

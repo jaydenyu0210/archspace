@@ -1,10 +1,13 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "electron.vite.config.ts",
+    "vitest.config.ts",
     "src/main",
     "src/engine-child",
     "src/plugin-child",
