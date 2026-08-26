@@ -54,7 +54,7 @@ import {
 import type { ChatMessage } from '@archspace/node-sdk';
 import type { AiGatewayConfig, ModelProfile } from './config.js';
 import { AiProfileError, AiProviderError, BIND_HINT, missingKeyError, unknownProfileError } from './errors.js';
-import { providerById, type ProviderDescriptor, type ProviderId } from './providers.js';
+import { providerById, providerHasEmbeddings, type ProviderDescriptor, type ProviderId } from './providers.js';
 import { mockEmbeddings, mockObject, mockText, type MockPrompt } from './mock.js';
 import { asJsonValue, toSdkSchema } from './schema.js';
 import type {
@@ -389,35 +389,24 @@ export function createAiGateway(options: AiGatewayOptions): ArchspaceAiGateway {
     signal?.throwIfAborted();
     const client = await clientFor(profile);
     if (client.kind === 'mock') return mockText(profile.model, prompt);
+    // Built BEFORE the try, deliberately. `promptArgs` rejects a request that
+    // carries neither a prompt nor messages — a caller's mistake, made before
+    // anything was sent. Inside the try it went through `mapProviderError`,
+    // which reported it as a provider outage AND marked it retryable, so the
+    // engine would dutifully re-send an impossible request three times and
+    // then blame a provider it had never contacted. Only the network call
+    // belongs in the block whose catch blames the network.
+    const args = promptArgs(prompt);
     try {
       const result = await sdkGenerateText({
         model: languageModelOf(client, profile),
-        ...promptArgs(prompt),
+        ...args,
         ...callSettings(profile, maxOutputTokens),
         ...(signal !== undefined ? { abortSignal: signal } : {}),
       });
       return result.text;
     } catch (err) {
       throw mapProviderError(err, profile, signal);
-    }
-  }
-
-  /** Providers whose code path exposes an embeddings endpoint.
-   *
-   *  Written as an exhaustive switch on `ProviderId` rather than read off the
-   *  catalogue's `suggestedEmbeddingModels`: that field is a UI suggestion list
-   *  and an arbitrary OpenAI-compatible endpoint legitimately serves
-   *  `/v1/embeddings` while we cannot suggest a single model id for it. Adding
-   *  a provider breaks this switch at compile time, which is the point.
-   */
-  function hasEmbeddings(provider: ProviderId): boolean {
-    switch (provider) {
-      case 'anthropic':
-        return false;
-      case 'ollama':
-      case 'openai-compatible':
-      case 'mock':
-        return true;
     }
   }
 
@@ -432,11 +421,13 @@ export function createAiGateway(options: AiGatewayOptions): ArchspaceAiGateway {
       req.signal?.throwIfAborted();
       const client = await clientFor(profile);
       if (client.kind === 'mock') return { object: mockObject(profile.model, req, req.schema) };
+      // Outside the try for the reason textOf gives.
+      const args = promptArgs(req);
       try {
         const result = await sdkGenerateObject({
           model: languageModelOf(client, profile),
           schema: toSdkSchema(req.schema),
-          ...promptArgs(req),
+          ...args,
           ...callSettings(profile, undefined),
           ...(req.signal !== undefined ? { abortSignal: req.signal } : {}),
         });
@@ -452,7 +443,7 @@ export function createAiGateway(options: AiGatewayOptions): ArchspaceAiGateway {
       // Nothing to embed is not a reason to open a connection.
       if (req.values.length === 0) return { embeddings: [] };
 
-      if (!hasEmbeddings(profile.provider)) {
+      if (!providerHasEmbeddings(profile.provider)) {
         // Caught here rather than at the SDK: `@ai-sdk/anthropic` types
         // `textEmbeddingModel` as returning `never` and throws when called, so
         // the failure would otherwise land mid-run as a provider crash instead

@@ -136,10 +136,16 @@ export async function captureToolResult(result: RawToolResult, assets: AssetStor
           refs.push(await putBase64(assets, resource.blob, { mediaType, ...(name !== undefined ? { name } : {}) }));
         } else if (typeof resource.text === 'string') {
           const bytes = new TextEncoder().encode(resource.text);
-          const format = formatTagFor(mediaType);
+          // A resource that sent text but declared no type is recorded as
+          // text/plain, so the tag has to be derived from THAT and not from the
+          // octet-stream fallback: a ref reading `{ mediaType: 'text/plain',
+          // format: 'octet_stream' }` contradicts itself, and the port type it
+          // presents would refuse to connect to an `asset<plain>` input.
+          const storedMediaType = typeof resource.mimeType === 'string' ? mediaType : 'text/plain';
+          const format = formatTagFor(storedMediaType);
           refs.push(
             await assets.put(bytes, {
-              mediaType: typeof resource.mimeType === 'string' ? mediaType : 'text/plain',
+              mediaType: storedMediaType,
               ...(format !== undefined ? { format } : {}),
               ...(name !== undefined ? { name } : {}),
             }),

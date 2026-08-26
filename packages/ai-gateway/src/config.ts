@@ -20,7 +20,7 @@
  *     The one exception is an entry we cannot represent at all (no name, or a
  *     provider id that is not in the catalogue) — there is nothing to keep.
  */
-import { PROVIDERS, providerById, type ProviderId } from './providers.js';
+import { PROVIDERS, providerById, providerHasEmbeddings, type ProviderId } from './providers.js';
 import { emitYamlSubset, parseYamlSubset, YamlSubsetError, type YamlValue } from './yaml-lite.js';
 
 export interface ModelProfile {
@@ -164,7 +164,9 @@ function validateProfile(
       issues.push({ severity: 'error', path: `${at}.embeddingModel`, message: 'embeddingModel must be a model id; ignored' });
     } else {
       profile.embeddingModel = raw.embeddingModel;
-      if (descriptor.suggestedEmbeddingModels === undefined && descriptor.kind !== 'test') {
+      // Asked of the one authority (providers.ts), not derived from whether the
+      // catalogue happens to suggest a model id. See providerHasEmbeddings.
+      if (!providerHasEmbeddings(descriptor.id)) {
         issues.push({
           severity: 'warning',
           path: `${at}.embeddingModel`,

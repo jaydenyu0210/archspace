@@ -72,6 +72,9 @@ export const DEFAULT_SERVER_CONCURRENCY = 1;
 /** Logical names are workflow-visible identifiers: [a-z][a-z0-9_]*. */
 const SERVER_NAME = /^[a-z][a-z0-9_]*$/;
 
+/** The interface that never leaves the machine, in every spelling `URL` emits. */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+
 export function isValidServerName(name: string): boolean {
   return SERVER_NAME.test(name);
 }
@@ -139,7 +142,10 @@ function parseBinding(
     }
     // Plain http to anything but the loopback interface ships bearer tokens in
     // clear text. It is allowed (developers run local bridges) but never silent.
-    if (url.protocol === 'http:' && url.hostname !== '127.0.0.1' && url.hostname !== 'localhost' && url.hostname !== '::1') {
+    // `URL.hostname` keeps an IPv6 literal in its bracketed form, so the
+    // loopback spelling a user writes as `http://[::1]:8443` arrives here as
+    // `[::1]` and never as `::1`; both are listed or the exemption is dead code.
+    if (url.protocol === 'http:' && !LOOPBACK_HOSTS.has(url.hostname)) {
       issues.push({ severity: 'warning', path: `${path}.url`, message: 'plaintext http to a non-loopback host: credentials and tool arguments travel unencrypted' });
     }
     const binding: McpHttpBinding = { transport: 'http', url: raw.url };
@@ -313,6 +319,19 @@ export function sameServerConfig(a: McpServerConfig, b: McpServerConfig): boolea
 function normalizeForCompare(c: McpServerConfig): unknown {
   const b = c.binding;
   return b.transport === 'stdio'
-    ? ['stdio', b.command, b.env ?? null, b.cwd ?? null, c.enabled, c.timeoutMs ?? null, c.concurrency ?? null]
-    : ['http', b.url, b.auth ?? 'none', b.bearerTokenRef ?? null, b.headers ?? null, c.enabled, c.timeoutMs ?? null, c.concurrency ?? null];
+    ? ['stdio', b.command, sortedEntries(b.env), b.cwd ?? null, c.enabled, c.timeoutMs ?? null, c.concurrency ?? null]
+    : ['http', b.url, b.auth ?? 'none', b.bearerTokenRef ?? null, sortedEntries(b.headers), c.enabled, c.timeoutMs ?? null, c.concurrency ?? null];
+}
+
+/**
+ * `env` and `headers` are maps, and a map has no order — but `JSON.stringify`
+ * has one: whichever order the keys happened to be inserted in. Comparing them
+ * raw would make moving one env line in a hand-edited mcp.yaml read as a
+ * changed binding, and `configure()` turns that verdict into the teardown of a
+ * live session — precisely the "renamed an unrelated setting, lost my Revit
+ * connection" failure this predicate exists to prevent. `manifest.ts`
+ * canonicalises keys before hashing for exactly the same reason.
+ */
+function sortedEntries(map: Record<string, string> | undefined): [string, string][] | null {
+  return map === undefined ? null : Object.entries(map).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 }

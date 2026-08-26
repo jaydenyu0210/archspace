@@ -10,18 +10,12 @@
  * variables for secrets, and no OAuth browser leg at all — an MCP server that
  * needs interactive authorization reports that fact instead of hanging.
  */
-import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createMemoryAssetStore, createNodeRegistry, type NodeModule, type NodeRegistry } from '@archspace/node-sdk';
 import { registerCoreNodes } from '@archspace/nodes-core';
 import { createAiGateway, type ArchspaceAiGateway } from '@archspace/ai-gateway';
 import { createMcpHost, type McpHost } from '@archspace/mcp-host';
-import {
-  createPluginHost,
-  type PluginConsentState,
-  type PluginHost,
-  type PluginProcess,
-} from '@archspace/plugin-host';
+import { createPluginHost, type PluginConsentState, type PluginHost } from '@archspace/plugin-host';
 import { mcpSupportCheck } from '@archspace/autodesk';
 import { cliSecrets, cliStrictSecrets, loadCliConfig, workspacePluginsDir, type CliConfig } from './config.js';
 
@@ -141,30 +135,16 @@ export async function createRuntime(options: RuntimeOptions = {}): Promise<Runti
       consent: config.pluginConsent,
       capabilities: { assets, ai, secrets: cliStrictSecrets, fetchImpl: fetch },
       log,
-      spawn: (childEntry, argv, opts): PluginProcess => {
-        // The child entry is TypeScript in the workspace, so it is forked
-        // through tsx — the same loader the rest of the repo's dev scripts use.
-        const useTsx = childEntry.endsWith('.ts');
-        const child = fork(childEntry, argv, {
-          cwd: opts.cwd,
-          env: opts.env,
-          execArgv: useTsx ? ['--import', 'tsx'] : [],
-          stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-        });
-        child.stdout?.on('data', (chunk: Buffer) => log('info', `[plugin] ${chunk.toString().trimEnd()}`));
-        child.stderr?.on('data', (chunk: Buffer) => log('warn', `[plugin] ${chunk.toString().trimEnd()}`));
-        return {
-          send: (message) => {
-            if (child.connected) child.send(message);
-          },
-          onMessage: (cb) => child.on('message', cb),
-          onExit: (cb) => child.on('exit', cb),
-          kill: (signal) => child.kill(signal),
-          get pid() {
-            return child.pid;
-          },
-        };
-      },
+      // No `spawn` override: the host's own `forkPluginSpawn` is the right
+      // implementation and this file used to carry a worse copy of it. That
+      // copy passed `execArgv: ['--import', 'tsx']`, and Node resolves a BARE
+      // specifier against the CHILD's cwd — which the host sets to the plugin's
+      // own directory. So `tsx` was found only for plugins that happened to sit
+      // inside this workspace, and every plugin a user actually installs under
+      // `<configDir>/plugins` died before its entry loaded, reported only as
+      // "exited during startup (exit code 1)". `forkPluginSpawn` resolves
+      // `tsx/esm` from the child ENTRY and passes an absolute file URL, which
+      // works from any cwd; it also forwards stdout and stderr to this `log`.
     });
     await plugins.discover();
     await trustNamedPlugins(plugins, config.pluginConsent, options.trustPlugins ?? [], log);

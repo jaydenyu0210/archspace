@@ -92,3 +92,31 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
 export function providerById(id: string): ProviderDescriptor | undefined {
   return PROVIDERS.find((p) => p.id === id);
 }
+
+/**
+ * Can this provider serve `ctx.ai.embed`?
+ *
+ * An exhaustive switch on `ProviderId`, never a read of
+ * `suggestedEmbeddingModels`. That field is a UI suggestion list, and an
+ * arbitrary OpenAI-compatible endpoint legitimately serves `/v1/embeddings`
+ * while we cannot suggest a single model id for whatever the user is running —
+ * so "no suggestions" and "no embeddings" are different facts. Deriving one
+ * from the other told users on the self-hosted path that a correct profile
+ * would fail, which is the worst direction for a warning to be wrong in.
+ *
+ * It lives here rather than in either caller because it had been answered
+ * twice, differently: the gateway switched on the provider and the config
+ * validator read the catalogue field, so the validator warned about profiles
+ * the gateway went on to serve. One authority is the fix; the switch breaking
+ * at compile time when a provider is added is the reason it stays a switch.
+ */
+export function providerHasEmbeddings(provider: ProviderId): boolean {
+  switch (provider) {
+    case 'anthropic':
+      return false;
+    case 'ollama':
+    case 'openai-compatible':
+    case 'mock':
+      return true;
+  }
+}
