@@ -166,11 +166,25 @@ async function reportMissingRequirements(
     else if (profile.readiness !== 'ready') lines.push(`  ai profile "${name}" is ${profile.readiness}: ${profile.detail ?? ''}`);
   }
 
-  const installed = rt.plugins?.list() ?? [];
-  for (const name of requires.plugins) {
-    const plugin = installed.find((p) => p.id === name || p.manifest.name === name);
-    if (plugin === undefined) lines.push(`  plugin "${name}" is not installed`);
-    else if (plugin.state !== 'loaded') lines.push(`  plugin "${name}" is ${plugin.state}${plugin.error !== undefined ? `: ${plugin.error}` : ''}`);
+  // `rt.plugins` is null only under --no-plugins. Reporting that as "not
+  // installed" blamed the machine for something the operator had just asked
+  // for on the command line, and sent them looking for a plugin that is
+  // sitting right there.
+  if (rt.plugins === null && requires.plugins.length > 0) {
+    lines.push(`  the plugin host is disabled (--no-plugins), so ${requires.plugins.join(', ')} cannot load`);
+  } else {
+    const installed = rt.plugins?.list() ?? [];
+    for (const name of requires.plugins) {
+      const plugin = installed.find((p) => p.id === name || p.manifest.name === name);
+      if (plugin === undefined) lines.push(`  plugin "${name}" is not installed`);
+      else if (plugin.state === 'needs-consent') {
+        // The one unsatisfied requirement with a fix the operator can act on
+        // in the same shell, so it says what that fix is.
+        lines.push(`  plugin "${name}" has not been consented to — re-run with --trust-plugin ${name}, or enable it in the app`);
+      } else if (plugin.state !== 'loaded') {
+        lines.push(`  plugin "${name}" is ${plugin.state}${plugin.error !== undefined ? `: ${plugin.error}` : ''}`);
+      }
+    }
   }
 
   if (lines.length > 0) {
