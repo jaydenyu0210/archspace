@@ -409,9 +409,14 @@ CI gate afterwards rather than assuming it is inert.
 
 A local `pnpm dist` has no such guard.
 
-**There is no app icon.** `build/` intentionally contains no `icon.icns`;
-electron-builder falls back to the default Electron icon with a warning. This is a
-known, accepted state — a fake icon would be worse than an obviously missing one —
-but the first alpha will ship looking like a generic Electron app. Do not "fix" it
-by adding `mac.icon:` pointing at a path that does not exist; a missing icon *file*
-is a hard error, unlike a missing icon.
+**The app icon is generated, not drawn.** `build/make-icon.py` renders
+`icon.png` and `icon.icns`, and `mac.icon` points at the `.icns`. Both artifacts
+are checked in so a contributor without the toolchain still builds an app that
+looks right; regenerate with `python3 packages/app/build/make-icon.py` (macOS
+only — it shells out to `sips` and `iconutil`).
+
+If you change it, judge it at **16px and 32px first**. The initial version was
+composed at 1024 and turned to mush in the Dock, which is where an icon is
+actually seen. Note also that `mac.icon` pointing at a path that does not exist
+is a hard error — worse than having no `icon` key at all — so delete the key and
+the file together if you ever remove it.

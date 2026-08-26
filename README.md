@@ -366,7 +366,6 @@ inspector display.
   `"test": "vitest run"`, and **Vitest exits non-zero when a package has no
   test files at all** — so a new package without a suite reds the whole
   command with nothing actually failing an assertion.
-- No application icon.
 - No 3D/IFC preview and no published release — see the status table above.
   Auto-update is now wired (`packages/app/src/main/updates.ts`) but has never
   run against a real release, and cannot reach anyone while this repository is

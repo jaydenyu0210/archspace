@@ -5,3 +5,7 @@ dist/
 *.log
 .DS_Store
 *.tsbuildinfo
+
+# Intermediate iconset; build/icon.icns and build/icon.png are the checked-in
+# artifacts, and make-icon.py regenerates all three.
+packages/app/build/icon.iconset/
