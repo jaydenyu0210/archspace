@@ -1,0 +1,61 @@
+name: Integration reality report
+description: >-
+  A documented Autodesk / MCP / AI-provider capability behaves differently from
+  what this repository claims about it.
+labels: ['integration', 'docs', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This template exists because of an explicit product rule: **Archspace
+        never presents a mock as a working integration.** `docs/research/ecosystem.md`
+        marks which claims were verified directly and which came from
+        search-result excerpts of pages that could not be retrieved (Autodesk's
+        site returns 403 to automated fetches). `packages/autodesk` carries that
+        evidence into the code.
+
+        If you have a real machine with a real licence, you can settle a claim
+        we could only cite. That is a genuinely valuable contribution, including
+        — especially — when the answer is "no, it does not work that way".
+
+  - type: input
+    id: claim
+    attributes:
+      label: The claim
+      description: Quote it, with the file and section.
+      placeholder: 'docs/research/ecosystem.md §1: "Transport. … says it communicates over stdio"'
+    validations:
+      required: true
+
+  - type: textarea
+    id: reality
+    attributes:
+      label: What you actually observed
+      description: Versions, exact command or config, and the output.
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: 'e.g. Windows 11 24H2, Revit 2027.1, Revit MCP Server Tech Preview build 1.2'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: verification
+    attributes:
+      label: How direct is this?
+      options:
+        - I ran it myself on the described machine
+        - A colleague ran it and I watched
+        - I read it on a page I could retrieve (link below)
+        - Secondary source / blog post
+    validations:
+      required: true
+
+  - type: input
+    id: source
+    attributes:
+      label: Source link, if any

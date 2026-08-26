@@ -1,0 +1,27 @@
+{
+  "name": "@archspace/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "archspace headless runner — loads a workflow document and executes it, printing the run event stream",
+  "main": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@archspace/ai-gateway": "workspace:*",
+    "@archspace/autodesk": "workspace:*",
+    "@archspace/document": "workspace:*",
+    "@archspace/engine": "workspace:*",
+    "@archspace/mcp-host": "workspace:*",
+    "@archspace/node-sdk": "workspace:*",
+    "@archspace/nodes-core": "workspace:*",
+    "@archspace/plugin-host": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
+  }
+}

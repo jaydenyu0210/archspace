@@ -1,0 +1,28 @@
+# Shared editor defaults. Kept minimal on purpose: the only formatting rules
+# worth encoding repo-wide are the ones a diff punishes you for getting wrong.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Workflow documents are the product's own file format and diff cleanliness is
+# a stated requirement (ARCHITECTURE §4) — never let an editor retab them.
+[*.{yaml,yml,archspace.yaml}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+# Markdown gives meaning to trailing spaces; leave them alone.
+trim_trailing_whitespace = false
+
+[LICENSE]
+insert_final_newline = true
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab

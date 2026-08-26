@@ -1,0 +1,98 @@
+Archspace
+Copyright 2026 The Archspace Authors
+
+This product includes software developed by The Archspace Authors.
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+--------------------------------------------------------------------------------
+Third-party components
+--------------------------------------------------------------------------------
+
+The distributed macOS application bundles the components below. Every version
+and license string here was read out of the installed package's own
+package.json (and, where present, its LICENSE file) in this repository's
+node_modules on 2026-08-25 — not from memory and not from a registry summary.
+Versions are the resolutions present at that date; they move with the lockfile,
+the license identifiers do not.
+
+Runtime, bundled into the shipped app
+-------------------------------------
+
+  Electron — MIT — 44.0.0
+    https://github.com/electron/electron
+    Ships its own third-party notices inside the framework (Chromium, Node.js,
+    V8 and their dependencies). Those notices travel with the framework in the
+    app bundle; this file does not restate them.
+
+  electron-updater — MIT — 6.8.9
+    https://github.com/electron-userland/electron-builder
+
+  React and React DOM — MIT — 19.2.8
+    https://github.com/facebook/react
+
+  @xyflow/react (React Flow) — MIT — 12.11.3
+    https://github.com/xyflow/xyflow
+    Renders the node canvas (ARCHITECTURE §3.3).
+
+  zustand — MIT — 5.0.15
+    https://github.com/pmndrs/zustand
+
+  Tailwind CSS — MIT — 4.3.3
+    https://github.com/tailwindlabs/tailwindcss
+    Build-time: the generated stylesheet is what ships.
+
+  ai (Vercel AI SDK) — Apache-2.0 — 7.0.79
+  @ai-sdk/anthropic — Apache-2.0 — 4.0.42
+  @ai-sdk/openai-compatible — Apache-2.0 — 3.0.37
+  @ai-sdk/provider — Apache-2.0 — 4.0.8
+  @ai-sdk/provider-utils — Apache-2.0 — 5.0.30
+  @ai-sdk/gateway — Apache-2.0 — 4.0.64 (transitive; no hosted gateway is ever
+    a default in this app — see ARCHITECTURE §10)
+    https://github.com/vercel/ai
+    Copyright 2023 Vercel, Inc.
+
+  @modelcontextprotocol/sdk — MIT — 1.30.0
+    https://github.com/modelcontextprotocol/typescript-sdk
+    The MCP client stack (ARCHITECTURE §9, research §5).
+
+  yaml (eemeli/yaml) — ISC — 2.9.0
+    https://github.com/eemeli/yaml
+    The comment-preserving CST the workflow format depends on (ADR-0004).
+
+  @noble/hashes — MIT — 1.8.0
+    https://github.com/paulmillr/noble-hashes
+    BLAKE3 content addressing for the asset store and the run cache.
+
+Build and development tooling (not redistributed in the app bundle)
+-------------------------------------------------------------------
+
+  TypeScript — Apache-2.0        esbuild — MIT        Vite — MIT
+  electron-vite — MIT            electron-builder — MIT
+  Vitest — MIT                   ESLint — MIT         typescript-eslint — MIT
+
+Not bundled, reached out of process
+-----------------------------------
+
+Archspace deliberately keeps copyleft and vendor code at arm's length: it is
+reached over MCP as a separate process, never linked (ARCHITECTURE §8.3,
+research §4, §6.5). Nothing in this section is distributed with the app, and
+running such a server is the user's own act:
+
+  IfcOpenShell — LGPL-3.0 — out-of-process MCP server, never linked
+  ezdxf — MIT — out-of-process MCP server
+  LibreDWG — GPL-3.0 — out-of-process only, if a user chooses to run it
+  Autodesk MCP servers and the Autodesk Platform Services APIs — proprietary,
+    operated by Autodesk; Archspace only speaks MCP/HTTP to them
+
+web-ifc (MPL-2.0) is named in ARCHITECTURE §3.3 for the IFC preview panel. It
+is **not** a dependency of this repository yet; when it lands it belongs in the
+bundled section above.
+
+--------------------------------------------------------------------------------
+Trademarks
+--------------------------------------------------------------------------------
+
+Autodesk, Revit, AutoCAD, Civil 3D and Fusion are trademarks of Autodesk, Inc.
+Archspace is not affiliated with, endorsed by, or sponsored by Autodesk.
+Product names are used solely to identify the systems Archspace interoperates
+with.

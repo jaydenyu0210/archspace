@@ -1,0 +1,12 @@
+{
+  "name": "aec-review",
+  "version": "0.1.0",
+  "namespace": "aec.review",
+  "displayName": "AEC Discipline Reviews",
+  "description": "Code, accessibility, zoning, structural and energy review nodes, plus the filter and merge nodes that converge them. Mock review engines — the output shapes are the contract a real backend must satisfy.",
+  "author": "Archspace (first-party)",
+  "license": "Apache-2.0",
+  "engineApi": 1,
+  "entry": "dist/index.js",
+  "permissions": []
+}

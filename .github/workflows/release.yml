@@ -1,0 +1,180 @@
+# Tagged macOS release (ARCHITECTURE §13 / ADR-0012).
+#
+# Two things this workflow is built to guarantee:
+#
+#  1. **CI is the only sanctioned release path.** Notarization needs the Apple
+#     API key, and the key lives here — not on a laptop. That is a feature.
+#  2. **It degrades honestly.** On a fork, or in a repo where the signing
+#     secrets have not been set, this does NOT quietly produce a .dmg that
+#     Gatekeeper refuses to open and users blame themselves for. It builds,
+#     labels the artifact UNSIGNED, refuses to publish it, and says so in the
+#     job summary. An unsigned artifact that announces itself is useful; one
+#     that pretends is a support burden.
+#
+# Secrets, and how to produce each one: docs/releasing.md.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # For dry runs: builds and uploads to the workflow's artifacts, never publishes.
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  # electron-builder creates the draft GitHub Release through GH_TOKEN below;
+  # this grants the default token the same right so a maintainer can fall back
+  # to it. Nothing else in this workflow writes.
+  contents: write
+
+jobs:
+  macos:
+    name: macOS universal (dmg + zip)
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The release gate is the CI gate. A tag does not get a shortcut.
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # Must precede the app build: the plugin's dist/ is copied into the app's
+      # extraResources (see packages/app/electron-builder.yml).
+      - name: Build the first-party plugin
+        run: pnpm --filter @archspace/plugin-aec-review build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Headless CLI integration run
+        run: pnpm cli run packages/app/resources/concept-compliance.archspace.yaml
+
+      # Secrets are empty on forks and in repos that have not been configured,
+      # so this single check covers both cases without a fork-detection hack.
+      - name: Determine signing capability
+        id: signing
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          missing=""
+          [ -n "${CSC_LINK}" ]         || missing="${missing} CSC_LINK"
+          [ -n "${APPLE_API_KEY}" ]    || missing="${missing} APPLE_API_KEY"
+          [ -n "${APPLE_API_KEY_ID}" ] || missing="${missing} APPLE_API_KEY_ID"
+          [ -n "${APPLE_API_ISSUER}" ] || missing="${missing} APPLE_API_ISSUER"
+          if [ -z "${missing}" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "Signing and notarization enabled."
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "missing=${missing}" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Unsigned build::Missing secrets:${missing}. This build will NOT be signed, notarized or published."
+          fi
+
+      # electron-builder passes APPLE_API_KEY to notarytool as a PATH to the
+      # .p8 private key, so the secret (which holds the base64 of that file)
+      # has to become a file first. Written outside the workspace so no glob in
+      # electron-builder.yml can ever sweep it into the app bundle.
+      - name: Materialise the App Store Connect API key
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/asc"
+          chmod 700 "${RUNNER_TEMP}/asc"
+          printf '%s' "${APPLE_API_KEY}" | base64 --decode > "${RUNNER_TEMP}/asc/AuthKey.p8"
+          chmod 600 "${RUNNER_TEMP}/asc/AuthKey.p8"
+          # Sanity check: a mangled secret must fail here, loudly, and not 40
+          # minutes later inside notarytool.
+          head -n 1 "${RUNNER_TEMP}/asc/AuthKey.p8" | grep -q 'BEGIN PRIVATE KEY' \
+            || { echo "::error title=Bad APPLE_API_KEY::Decoded secret is not a PEM private key. Store it as: base64 -i AuthKey_XXXXXXXX.p8"; exit 1; }
+
+      - name: Build renderer, preload and main
+        run: pnpm --filter @archspace/app build
+
+      # Signed + notarized + published as a DRAFT release. Draft, not published:
+      # the release gate (spctl -a on a clean machine, updater n-1 -> n) is a
+      # human step, and a draft is the only thing that reliably stops a download
+      # link existing before that step happens.
+      - name: Package, sign, notarize and publish (draft)
+        if: steps.signing.outputs.signed == 'true'
+        working-directory: packages/app
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ runner.temp }}/asc/AuthKey.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: pnpm exec electron-builder --mac --universal --publish always
+
+      # No secrets: build anyway, so the packaging path itself stays tested on
+      # every fork PR that touches it — but sign nothing and publish nothing.
+      - name: Package UNSIGNED (no publish)
+        if: steps.signing.outputs.signed != 'true'
+        working-directory: packages/app
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: pnpm exec electron-builder --mac --universal --publish never
+
+      - name: Remove the API key
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/asc/AuthKey.p8"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: >-
+            archspace-macos-${{ steps.signing.outputs.signed == 'true' && 'signed' || 'UNSIGNED' }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            packages/app/dist/*.dmg
+            packages/app/dist/*.zip
+            packages/app/dist/latest-mac.yml
+            packages/app/dist/*.blockmap
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            if [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
+              echo "### Signed release build"
+              echo
+              echo "Artifacts are Developer ID signed and notarized, and a **draft** GitHub Release was created."
+              echo
+              echo "Before publishing that draft, run the release gate in \`docs/releasing.md\`:"
+              echo "1. \`spctl -a -vvv -t install /Applications/Archspace.app\` on a machine that has never seen this app."
+              echo "2. Install the previous release and confirm it auto-updates to this one."
+            else
+              echo "### UNSIGNED build — do not distribute"
+              echo
+              echo "Missing secrets:\`${{ steps.signing.outputs.missing }}\`"
+              echo
+              echo "The attached .dmg/.zip are **not signed and not notarized**. macOS Gatekeeper will refuse to open them"
+              echo "on any machine other than the one that built them. They exist so that the packaging path stays tested"
+              echo "on forks; they are not a release. Nothing was published."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

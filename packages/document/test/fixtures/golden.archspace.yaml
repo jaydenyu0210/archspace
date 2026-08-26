@@ -1,0 +1,33 @@
+# Golden fixture: snapshot-tested; edit only alongside its snapshots.
+archspace: 1
+kind: workflow
+meta:
+  name: Golden workflow
+
+# Generated on save from the nodes below; lets humans and CI see what a
+# workflow needs without loading a node registry.
+requires:
+  mcp: []
+  ai: [default]
+  plugins: []
+
+nodes:
+  - id: n_gld001
+    type: ai.generate_text
+    version: 1
+    config:
+      profile: default
+      prompt: |
+        Two lines of prompt,
+        diffable line by line.
+  # a placeholder node with no config
+  - id: n_gld002
+    type: aec.space_program
+    version: 1
+
+edges:
+  - n_gld001.text -> n_gld002.brief # feed the draft
+
+layout:
+  n_gld001: { x: 80, y: 160 }
+  n_gld002: { x: 420, y: 160 }

@@ -1,0 +1,157 @@
+# One scheme, five reviewers, one report.
+#
+# This workflow demonstrates BRANCHING REVIEW: a single generated design fans
+# out to five independent review arms — zoning, code, accessibility, structural
+# and energy — which the engine runs concurrently on the `ai` lane, and which
+# converge on a single merge. Because the branches are independent, a failure
+# in one arm leaves the other four `succeeded` and only its own descendants
+# `skipped`; the merge node is deliberately tolerant of an arm that returns
+# nothing useful.
+archspace: 1
+kind: workflow
+meta:
+  name: Branching design review
+  description: One massing and plan reviewed in parallel by five disciplines, merged into one report.
+
+# Generated on save from the nodes below; lets humans and CI see what a
+# workflow needs without loading a node registry.
+requires:
+  mcp: []
+  ai: []
+  plugins: [aec-review]
+
+nodes:
+  - id: n_b3k7qp
+    type: aec.project_brief
+    version: 1
+    config:
+      project_name: Riverside Office Tower
+      building_type: office
+      floors: 6
+      target_gross_area_m2: 7600
+      notes: |
+        Six-storey speculative office on the riverside plot.
+        Reviewed against IBC 2024, ANSI A117.1 and the C-2 zoning envelope.
+
+  # ---- Zoning arm: site envelope → massing → zoning check -----------------
+  - id: n_s7m2fd
+    type: aec.site_constraints
+    version: 1
+    config:
+      zoning_district: C-2 Commercial
+      # Drop max_far to 2.0 to watch the zoning arm raise a FAR violation
+      # while the other four arms carry on unaffected.
+      max_far: 3.5
+  - id: n_m4t6ka
+    type: aec.generate_massing
+    version: 1
+    config:
+      strategy: bar
+      seed: 7
+  - id: n_z2p6wv
+    type: aec.review.zoning
+    version: 1
+    config: {}
+
+  # ---- Plan: the subject the remaining four arms review -------------------
+  - id: n_p5x3nc
+    type: aec.space_program
+    version: 1
+    config:
+      circulation_factor: 0.35
+  - id: n_f5r7bh
+    type: aec.generate_floor_plan
+    version: 1
+    config:
+      seed: 7
+      door_width_mm: 900
+  - id: n_i6d4ml
+    type: aec.generate_bim_model
+    version: 1
+    config: {}
+
+  # ---- Four parallel review arms over the same plan -----------------------
+  - id: n_c4v2qs
+    type: aec.review.code_compliance
+    version: 1
+    config:
+      code_version: IBC 2024
+  - id: n_a3n7kj
+    type: aec.review.accessibility
+    version: 1
+    config:
+      standard_version: '2017'
+  - id: n_g7h5tz
+    type: aec.generate_structural_grid
+    version: 1
+    config:
+      system: steel_frame
+      bay_width_mm: 7500
+  - id: n_t2w5pb
+    type: aec.review.structural
+    version: 1
+    config:
+      max_span_mm: 9000
+  - id: n_e4y6rn
+    type: aec.review.energy_performance
+    version: 1
+    config:
+      target_eui_kwh_m2_yr: 95
+      climate_zone: 4A
+
+  # ---- Converge: one findings set, one report -----------------------------
+  - id: n_u5j3xd
+    type: aec.review.merge_findings
+    version: 1
+    config:
+      dedupe: true
+  - id: n_r6q4vw
+    type: aec.generate_compliance_report
+    version: 1
+    config:
+      tone: formal
+
+edges:
+  - n_b3k7qp.brief -> n_s7m2fd.brief
+  - n_b3k7qp.brief -> n_m4t6ka.brief
+  - n_s7m2fd.constraints -> n_m4t6ka.constraints
+  - n_s7m2fd.constraints -> n_z2p6wv.constraints
+  - n_m4t6ka.massing -> n_z2p6wv.massing
+  - n_b3k7qp.brief -> n_z2p6wv.brief
+  - n_b3k7qp.brief -> n_p5x3nc.brief
+  - n_b3k7qp.brief -> n_f5r7bh.brief
+  - n_p5x3nc.program -> n_f5r7bh.program
+  - n_f5r7bh.floor_plan -> n_i6d4ml.floor_plan
+  - n_f5r7bh.floor_plan -> n_c4v2qs.floor_plan
+  - n_i6d4ml.summary -> n_c4v2qs.bim_summary
+  - n_i6d4ml.model -> n_c4v2qs.model
+  - n_f5r7bh.floor_plan -> n_a3n7kj.floor_plan
+  - n_i6d4ml.summary -> n_a3n7kj.bim_summary
+  - n_f5r7bh.floor_plan -> n_g7h5tz.floor_plan
+  - n_g7h5tz.grid -> n_t2w5pb.grid
+  - n_f5r7bh.floor_plan -> n_t2w5pb.floor_plan
+  - n_f5r7bh.floor_plan -> n_e4y6rn.floor_plan
+  - n_m4t6ka.massing -> n_e4y6rn.massing
+  - n_z2p6wv.result -> n_u5j3xd.reviews
+  - n_c4v2qs.result -> n_u5j3xd.reviews
+  - n_a3n7kj.result -> n_u5j3xd.reviews
+  - n_t2w5pb.result -> n_u5j3xd.reviews
+  - n_e4y6rn.result -> n_u5j3xd.reviews
+  - n_u5j3xd.result -> n_r6q4vw.review
+  - n_b3k7qp.brief -> n_r6q4vw.brief
+
+layout:
+  n_b3k7qp: { x: 60, y: 420 }
+  n_s7m2fd: { x: 420, y: 120 }
+  n_m4t6ka: { x: 800, y: 120 }
+  n_z2p6wv: { x: 1180, y: 60 }
+  n_p5x3nc: { x: 420, y: 500 }
+  n_f5r7bh: { x: 800, y: 500 }
+  n_i6d4ml: { x: 1180, y: 760 }
+  n_c4v2qs: { x: 1560, y: 260 }
+  n_a3n7kj: { x: 1560, y: 460 }
+  n_g7h5tz: { x: 1180, y: 500 }
+  n_t2w5pb: { x: 1560, y: 660 }
+  n_e4y6rn: { x: 1560, y: 880 }
+  n_u5j3xd: { x: 1960, y: 460 }
+  n_r6q4vw: { x: 2320, y: 460 }

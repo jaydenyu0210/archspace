@@ -1,0 +1,238 @@
+/**
+ * Typed message protocols crossing the app's process boundaries.
+ *
+ *   renderer ⇄ engine child : MessagePort pair (run/cancel/events/manifests,
+ *                             plus MCP and plugin status pushes)
+ *   main     ⇄ engine child : MessagePort pair (the CONTROL channel: config
+ *                             push, secret resolution, OAuth relay)
+ *   renderer ⇄ main         : contextBridge IPC (files, dialogs, menu,
+ *                             settings, secrets, plugin install)
+ *
+ * Everything here must survive structured clone.
+ *
+ * Why the split: main owns the filesystem, the OS keychain (safeStorage) and
+ * the browser (`shell.openExternal`); the engine child owns the node registry,
+ * the MCP client pool, the plugin host and the AI gateway (ARCHITECTURE §3.2,
+ * §9.2). Settings therefore travel renderer → main (persisted) → engine
+ * (applied), and status travels engine → renderer directly. Secret VALUES only
+ * ever exist in main and the engine child — never in the renderer.
+ */
+import type { NodeManifest } from '@archspace/node-sdk';
+import type { EngineGraph, RunEvent, ValidationIssue } from '@archspace/engine';
+import type { DocIssue, WorkflowDoc } from '@archspace/document';
+import type { AiGatewayConfig, ProfileProbeResult, ProfileStatus } from '@archspace/ai-gateway';
+import type { McpConfig, McpServerStatus } from '@archspace/mcp-host';
+import type { InstalledPluginInfo } from '@archspace/plugin-host';
+import type { AutodeskCapability, McpServerPreset } from '@archspace/autodesk';
+
+// ---- renderer → engine child ----------------------------------------------
+
+export type EngineRequest =
+  | { t: 'hello' }
+  | { t: 'run'; runId: string; graph: EngineGraph }
+  | { t: 'cancel'; runId: string }
+  | { t: 'validate'; requestId: number; graph: EngineGraph }
+  /** Connect / disconnect one MCP server by logical name. */
+  | { t: 'mcp-connect'; requestId: number; name: string }
+  | { t: 'mcp-disconnect'; requestId: number; name: string }
+  /** Re-read tools/list from a connected server (drift check, manual refresh). */
+  | { t: 'mcp-refresh'; requestId: number; name: string }
+  | { t: 'mcp-status' }
+  /** Enable / disable an installed plugin, or reload the plugin set. */
+  | { t: 'plugin-set-enabled'; requestId: number; id: string; enabled: boolean }
+  | { t: 'plugin-reload'; requestId: number }
+  | { t: 'plugin-status' }
+  /** Probe one AI model profile end to end (a real, minimal provider call). */
+  | { t: 'ai-probe'; requestId: number; profile: string }
+  | { t: 'ai-status' };
+
+// ---- engine child → renderer ----------------------------------------------
+
+export type EngineResponse =
+  | { t: 'manifests'; manifests: NodeManifest[] }
+  | { t: 'event'; runId: string; event: RunEvent }
+  | { t: 'run-rejected'; runId: string; issues: ValidationIssue[] }
+  | { t: 'validated'; requestId: number; issues: ValidationIssue[] }
+  /** Pushed whenever any server's state changes, and in reply to mcp-status. */
+  | { t: 'mcp-status'; servers: McpServerStatus[] }
+  | { t: 'mcp-result'; requestId: number; ok: boolean; error?: string }
+  /** Pushed whenever the plugin set changes, and in reply to plugin-status. */
+  | { t: 'plugin-status'; plugins: InstalledPluginInfo[] }
+  | { t: 'plugin-result'; requestId: number; ok: boolean; error?: string }
+  | { t: 'ai-status'; profiles: ProfileStatus[] }
+  | { t: 'ai-probe-result'; requestId: number; result: ProfileProbeResult };
+
+// ---- main ⇄ engine child (control channel) --------------------------------
+
+/**
+ * Absolute paths the engine child cannot work out for itself: in development
+ * they point into the workspace, in a packaged app into `resourcesPath`, and
+ * only main knows which of those it is.
+ */
+export interface EnginePaths {
+  /** Read-only directories of first-party plugins shipped inside the app. */
+  bundledPluginDirs: string[];
+  /** Where user-installed plugins live and where installs land. */
+  userPluginsDir: string;
+  /** The built plugin child script the plugin host forks per plugin. */
+  pluginChildEntry: string;
+  /** Electron binary path; forked as Node via ELECTRON_RUN_AS_NODE. */
+  execPath: string;
+}
+
+/** main → engine. Config is pushed on connect and on every settings change. */
+export type EngineControlRequest =
+  | { t: 'init'; paths: EnginePaths }
+  | { t: 'config'; mcp: McpConfig; ai: AiGatewayConfig; pluginConsent: PluginConsentState }
+  /** Reply to an engine-issued secret request (value present only on success). */
+  | { t: 'secret-result'; requestId: number; value?: string; error?: string }
+  /** Reply to an engine-issued OAuth authorization request. */
+  | { t: 'oauth-result'; requestId: number; ok: boolean; code?: string; state?: string; error?: string }
+  /** Reply to an engine-issued OAuth token-store read/write. */
+  | { t: 'oauth-store-result'; requestId: number; ok: boolean; json?: string; error?: string };
+
+/** engine → main. */
+export type EngineControlEvent =
+  | { t: 'ready' }
+  /** Resolve a secret by KEY. The value never leaves main and the engine. */
+  | { t: 'secret-request'; requestId: number; key: string }
+  /** Ask main to run the OAuth 2.1 + PKCE browser flow for an MCP server. */
+  | { t: 'oauth-request'; requestId: number; server: string; authorizationUrl: string; redirectUri: string }
+  /** Persisted OAuth client registration + tokens, keyed per server. */
+  | { t: 'oauth-store-read'; requestId: number; server: string; slot: OAuthStoreSlot }
+  | { t: 'oauth-store-write'; requestId: number; server: string; slot: OAuthStoreSlot; json: string | null }
+  /** Mirrored to the renderer by main when no renderer port is live yet. */
+  | { t: 'mcp-status'; servers: McpServerStatus[] }
+  | { t: 'plugin-status'; plugins: InstalledPluginInfo[] };
+
+export type OAuthStoreSlot = 'client-information' | 'tokens' | 'code-verifier';
+
+/** Which permissions the user has granted each plugin, by plugin id. */
+export type PluginConsentState = Record<string, { enabled: boolean; permissions: string[] }>;
+
+// ---- renderer ⇄ main (via preload bridge) ---------------------------------
+
+export interface OpenedWorkflow {
+  path: string;
+  doc: WorkflowDoc;
+  issues: DocIssue[];
+}
+
+export type OpenResult =
+  | { ok: true; workflow: OpenedWorkflow }
+  | { ok: false; error: string; issues?: DocIssue[] }
+  | { ok: false; cancelled: true };
+
+export type SaveResult =
+  | { ok: true; path: string }
+  | { ok: false; error: string }
+  | { ok: false; cancelled: true };
+
+export type MenuAction =
+  | 'new'
+  | 'open'
+  | 'save'
+  | 'save-as'
+  | 'undo'
+  | 'redo'
+  | 'run'
+  | 'cancel-run'
+  | 'settings-mcp'
+  | 'settings-ai'
+  | 'settings-plugins'
+  | 'settings-autodesk';
+
+export type SettingsResult = { ok: true } | { ok: false; error: string };
+
+/** Secret keys are listed to the renderer; secret VALUES never are. */
+export interface SecretKeyInfo {
+  key: string;
+  /** Set the first time this key was written, for the "configured" affordance. */
+  createdAt: number;
+}
+
+export interface PluginInstallResult {
+  ok: boolean;
+  error?: string;
+  /** Present on success — what was installed, so the UI can name it. */
+  plugin?: { id: string; displayName: string; version: string; permissions: string[] };
+  cancelled?: boolean;
+}
+
+/** Host platform facts the UI needs to tell the truth about availability. */
+export interface PlatformInfo {
+  platform: NodeJS.Platform;
+  arch: string;
+  appVersion: string;
+  electronVersion: string;
+  /** Absolute paths, shown in settings so users can find/edit files by hand. */
+  paths: {
+    userData: string;
+    mcpConfig: string;
+    aiConfig: string;
+    userPlugins: string;
+    workflows: string;
+  };
+  /** True when the OS keychain backs safeStorage; false ⇒ secrets are refused. */
+  secretsAvailable: boolean;
+}
+
+/** Surface exposed on window.archspace by the preload script. */
+export interface ArchspaceBridge {
+  /** Ask main to open a file picker and parse the chosen workflow. */
+  openDialog(): Promise<OpenResult>;
+  /** Open (copying into user data on first launch) the bundled example. */
+  openDefault(): Promise<OpenResult>;
+  /** Save. Null path → save-as dialog. Returns the path actually written. */
+  save(path: string | null, doc: WorkflowDoc): Promise<SaveResult>;
+  /** Ask main for a fresh engine MessagePort (delivered via window message). */
+  requestEnginePort(): void;
+  onMenu(cb: (action: MenuAction) => void): void;
+  /** Engine child crashed and was restarted; any in-flight run is dead. */
+  onEngineRestarted(cb: () => void): void;
+  setDirty(dirty: boolean): void;
+
+  platform(): Promise<PlatformInfo>;
+
+  /** MCP server bindings — machine-local settings, never the workflow file. */
+  getMcpConfig(): Promise<McpConfig>;
+  setMcpConfig(config: McpConfig): Promise<SettingsResult>;
+  /** Reveal mcp.yaml / ai.yaml in Finder for hand editing. */
+  revealPath(path: string): Promise<void>;
+
+  /** AI model profiles. Keys are stored by REFERENCE; values go to secrets. */
+  getAiConfig(): Promise<AiGatewayConfig>;
+  setAiConfig(config: AiGatewayConfig): Promise<SettingsResult>;
+
+  /** Secrets live in the OS keychain via safeStorage; values are write-only
+   *  from the renderer's point of view. */
+  listSecretKeys(): Promise<SecretKeyInfo[]>;
+  setSecret(key: string, value: string): Promise<SettingsResult>;
+  deleteSecret(key: string): Promise<SettingsResult>;
+
+  /** Install a plugin from a directory or a packed .tgz chosen by the user. */
+  installPlugin(): Promise<PluginInstallResult>;
+  uninstallPlugin(id: string): Promise<SettingsResult>;
+  /** Persisted enable/permission state; the engine applies it. */
+  getPluginConsent(): Promise<PluginConsentState>;
+  setPluginConsent(state: PluginConsentState): Promise<SettingsResult>;
+
+  /** Autodesk/Revit capability map and the MCP presets that are real. */
+  autodeskCapabilities(): Promise<AutodeskCapability[]>;
+  autodeskPresets(): Promise<McpServerPreset[]>;
+
+  /** Open an external URL (evidence links in the Autodesk panel). */
+  openExternal(url: string): Promise<void>;
+}
+
+/**
+ * The loopback redirect a native OAuth client must register before any flow
+ * starts. Fixed (not ephemeral) so re-launching the app does not invalidate a
+ * registration, and `127.0.0.1` rather than `localhost` so no DNS answer can
+ * re-point it (the DNS-rebinding class the MCP spec guards against).
+ */
+export const OAUTH_REDIRECT_PORT = 33418;
+export const OAUTH_REDIRECT_URI = `http://127.0.0.1:${OAUTH_REDIRECT_PORT}/callback`;
+
+/** Marker property on the window message that carries the engine MessagePort. */
+export const ENGINE_PORT_MESSAGE = 'archspace:engine-port';

@@ -1,0 +1,75 @@
+# Concept design → compliance check, end to end on mock backends.
+# This file is the shipped example: edit it, run it, git-diff it.
+archspace: 1
+kind: workflow
+meta:
+  name: Concept compliance check
+  description: From a project brief to a reviewed BIM model and a compliance report.
+
+# Generated on save from the nodes below; lets humans and CI see what a
+# workflow needs without loading a node registry.
+requires:
+  mcp: []
+  ai: []
+  plugins: [aec-review]
+
+nodes:
+  - id: n_k3v9qp
+    type: aec.project_brief
+    version: 1
+    config:
+      project_name: Riverside Office Tower
+      building_type: office
+      floors: 6
+      target_gross_area_m2: 7600
+      # The site takes 7833 m² across six floors at 85% coverage. Push this
+      # past that and the floor-plan generator refuses the capacity, and
+      # everything downstream shows skipped.
+      notes: |
+        Six-storey speculative office building on the riverside plot.
+        Target B occupancy, IBC 2024 jurisdiction.
+  - id: n_8t2mfa
+    type: aec.space_program
+    version: 1
+    config:
+      circulation_factor: 0.35
+  - id: n_qw7xps
+    type: aec.generate_floor_plan
+    version: 1
+    config:
+      seed: 7
+      # 800 mm here produces an IBC-1010.1.1 door-width violation.
+      door_width_mm: 900
+  - id: n_c4m2hd
+    type: aec.generate_bim_model
+    version: 1
+    config: {}
+  - id: n_r9t3kv
+    type: aec.review.code_compliance
+    version: 1
+    config:
+      code_version: IBC 2024
+  - id: n_z6w8na
+    type: aec.generate_compliance_report
+    version: 1
+    config:
+      include_passed_summary: true
+
+edges:
+  - n_k3v9qp.brief -> n_8t2mfa.brief
+  - n_k3v9qp.brief -> n_qw7xps.brief
+  - n_8t2mfa.program -> n_qw7xps.program
+  - n_qw7xps.floor_plan -> n_c4m2hd.floor_plan
+  - n_qw7xps.floor_plan -> n_r9t3kv.floor_plan
+  - n_c4m2hd.summary -> n_r9t3kv.bim_summary
+  - n_c4m2hd.model -> n_r9t3kv.model
+  - n_k3v9qp.brief -> n_z6w8na.brief
+  - n_r9t3kv.result -> n_z6w8na.review
+
+layout:
+  n_k3v9qp: { x: 60, y: 200 }
+  n_8t2mfa: { x: 420, y: 80 }
+  n_qw7xps: { x: 780, y: 200 }
+  n_c4m2hd: { x: 1140, y: 80 }
+  n_r9t3kv: { x: 1500, y: 220 }
+  n_z6w8na: { x: 1860, y: 120 }

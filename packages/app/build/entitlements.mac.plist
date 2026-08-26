@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the Archspace app and its helpers
+  (ARCHITECTURE §13 / ADR-0012).
+
+  The rule for this file: an entitlement is a hole in the hardened runtime, so
+  each one below has to name the concrete thing that breaks without it. Nothing
+  is here "because Electron templates have it".
+
+  NOTE ON WHAT IS DELIBERATELY ABSENT:
+
+  * No App Sandbox key (`com.apple.security.app-sandbox`). The sandbox forbids
+    spawning arbitrary child processes; Archspace's spine is spawning stdio MCP
+    servers (§9.2) and one child process per installed plugin (§8.1). Turning
+    the sandbox on would delete the extension model, which is why there is no
+    Mac App Store build. Because the sandbox is off, the sandbox-only keys
+    (`com.apple.security.inherit`, `files.user-selected.read-write`,
+    `network.client`, `device.*`) are meaningless here and are not listed —
+    outside the sandbox the app already has the user's own file and network
+    access, mediated by TCC prompts.
+
+  * No `com.apple.security.cs.allow-unsigned-executable-memory`. Modern Electron
+    needs `allow-jit` only. If a future Electron or a native plugin dependency
+    turns out to need it, add it with a note saying what failed — do not add it
+    pre-emptively.
+
+  * No `com.apple.security.cs.debugger`, no
+    `com.apple.security.automation.apple-events`. The app scripts nothing and
+    debugs nothing.
+-->
+<plist version="1.0">
+<dict>
+  <!--
+    V8 compiles JavaScript to machine code at runtime. Without this, the
+    renderer and every Node-side process crash on launch under the hardened
+    runtime. This is the one non-negotiable Electron entitlement.
+  -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+
+  <!--
+    Plugins are user-installed code and may ship native `.node` addons (the
+    consent flow surfaces "this plugin contains native code" for exactly this
+    reason — ADR-0012 §6). Library validation would refuse to load any dynamic
+    library not signed by our Team ID, so a plugin with a native dependency
+    could never load. This is the entitlement that makes the plugin process
+    model work, and it is the largest hole in this file: it is the reason
+    ADR-0008's honesty clause says v1's plugin boundary is fault isolation and
+    permission mediation, NOT a hardened security sandbox.
+  -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+
+  <!--
+    Plugin child processes are launched as `ELECTRON_RUN_AS_NODE` forks of our
+    own signed binary (see PluginSpawn in @archspace/plugin-host), and stdio MCP
+    servers are spawned with a caller-supplied `env` block (McpStdioBinding.env).
+    The hardened runtime restricts environment variables inherited across a
+    signed binary's exec; this entitlement is the documented escape hatch.
+
+    HONEST STATUS: this has NOT been verified against a real signed build — no
+    Developer ID identity exists in this environment (see docs/releasing.md).
+    It is here because removing an entitlement after a green signed build is
+    cheap and safe, whereas debugging a silently-dead plugin process on a
+    notarized build is not. On the first real signed run, try removing it: if
+    the plugin-host crash-containment test and an stdio MCP server both still
+    work in the packaged app, delete this key and this comment.
+  -->
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+</dict>
+</plist>

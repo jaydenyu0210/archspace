@@ -1,0 +1,47 @@
+# Top-of-file comment: reviewed by QA.
+archspace: 1
+kind: workflow
+meta:
+  name: Commented fixture # inline name comment
+  description: Exercises comment survival.
+
+# Generated on save from the nodes below; lets humans and CI see what a
+# workflow needs without loading a node registry.
+requires:
+  mcp: [revit]
+  ai: [default]
+  plugins: []
+
+nodes:
+  # Node A pulls the schedule.
+  - id: n_aaaaaa
+    type: mcp.revit.query_model
+    version: 1
+    config:
+      # config comment: category matters
+      category: Rooms # inline value comment
+  - id: n_bbbbbb
+    type: aec.space_program
+    version: 1
+    config: {}
+  # Node C drafts the summary.
+  - id: n_cccccc
+    type: ai.generate_text
+    version: 1
+    config:
+      profile: default
+      prompt: |
+        Summarize the schedule.
+        Flag missing areas.
+
+edges:
+  - n_aaaaaa.result -> n_cccccc.context # main data path
+  - n_bbbbbb.brief -> n_cccccc.brief
+
+layout:
+  # pixels only below this line
+  n_aaaaaa: { x: 120, y: 240 }
+  n_bbbbbb: { x: 300, y: 240 }
+  n_cccccc: { x: 460, y: 240 }
+
+# End-of-file note.

@@ -1,0 +1,144 @@
+# Review, fix, re-review, report.
+#
+# This workflow demonstrates the REVIEW → MODIFY → REPORT loop. The plan is
+# generated with deliberately non-compliant 800 mm doors, so the first review
+# has real violations to find. Those are filtered to the actionable set, handed
+# to the fixer, and the revised plan is re-modelled and re-reviewed. The
+# comparison node then shows what the fix actually bought.
+#
+# The loop is UNROLLED, not cyclic: workflows are DAGs (ADR-0007), so an
+# iteration is two review nodes side by side, never a back-edge. Run it and
+# watch the second review's violation count drop against the first.
+archspace: 1
+kind: workflow
+meta:
+  name: Review, fix and re-review
+  description: A deliberately non-compliant plan, auto-fixed and re-reviewed, with a before/after comparison.
+
+# Generated on save from the nodes below; lets humans and CI see what a
+# workflow needs without loading a node registry.
+requires:
+  mcp: []
+  ai: []
+  plugins: [aec-review]
+
+nodes:
+  - id: n_k2b7dm
+    type: aec.project_brief
+    version: 1
+    config:
+      project_name: Riverside Office Tower
+      building_type: office
+      floors: 6
+      target_gross_area_m2: 7600
+      notes: |
+        Same brief as the concept-compliance example, but the plan below is
+        generated with sub-minimum doors so the fix loop has real work to do.
+  - id: n_v6s3qt
+    type: aec.space_program
+    version: 1
+    config:
+      circulation_factor: 0.35
+  - id: n_h4n5wy
+    type: aec.generate_floor_plan
+    version: 1
+    config:
+      seed: 7
+      # 800 mm is below the IBC 1010.1.1 minimum of 813 mm — this is what
+      # seeds the loop. Set it to 950 and the fixer will find nothing to do.
+      door_width_mm: 800
+
+  # ---- Baseline: model and review the plan as generated -------------------
+  - id: n_j7c2rf
+    type: aec.generate_bim_model
+    version: 1
+    config: {}
+  - id: n_d5g6pz
+    type: aec.review.code_compliance
+    version: 1
+    config:
+      code_version: IBC 2024
+
+  # ---- Modify: narrow to the actionable findings, then fix the plan -------
+  - id: n_x3t4kv
+    type: aec.review.filter_findings
+    version: 1
+    config:
+      include_violations: true
+      include_warnings: false
+  - id: n_y7m2bn
+    type: aec.apply_plan_fixes
+    version: 1
+    config:
+      min_door_width_mm: 915
+
+  # ---- Re-model and re-review the revised plan ----------------------------
+  - id: n_q4w6sc
+    type: aec.generate_bim_model
+    version: 1
+    config: {}
+  - id: n_l2z5hf
+    type: aec.review.code_compliance
+    version: 1
+    config:
+      code_version: IBC 2024
+
+  # ---- Report: what changed, plus the deliverables ------------------------
+  - id: n_o6p3jt
+    type: aec.compare_reviews
+    version: 1
+    config:
+      tone: formal
+  - id: n_w5f7dg
+    type: aec.generate_room_schedule
+    version: 1
+    config:
+      include_circulation: false
+  - id: n_n3k4vb
+    type: aec.export_table_csv
+    version: 1
+    config:
+      file_name: room-schedule.csv
+  - id: n_a7r2mx
+    type: aec.generate_compliance_report
+    version: 1
+    config:
+      tone: formal
+
+edges:
+  - n_k2b7dm.brief -> n_v6s3qt.brief
+  - n_k2b7dm.brief -> n_h4n5wy.brief
+  - n_v6s3qt.program -> n_h4n5wy.program
+  - n_h4n5wy.floor_plan -> n_j7c2rf.floor_plan
+  - n_h4n5wy.floor_plan -> n_d5g6pz.floor_plan
+  - n_j7c2rf.summary -> n_d5g6pz.bim_summary
+  - n_j7c2rf.model -> n_d5g6pz.model
+  - n_d5g6pz.result -> n_x3t4kv.review
+  - n_h4n5wy.floor_plan -> n_y7m2bn.floor_plan
+  - n_x3t4kv.result -> n_y7m2bn.review
+  - n_y7m2bn.floor_plan -> n_q4w6sc.floor_plan
+  - n_y7m2bn.floor_plan -> n_l2z5hf.floor_plan
+  - n_q4w6sc.summary -> n_l2z5hf.bim_summary
+  - n_q4w6sc.model -> n_l2z5hf.model
+  - n_d5g6pz.result -> n_o6p3jt.before
+  - n_l2z5hf.result -> n_o6p3jt.after
+  - n_y7m2bn.floor_plan -> n_w5f7dg.floor_plan
+  - n_q4w6sc.summary -> n_w5f7dg.bim_summary
+  - n_w5f7dg.schedule -> n_n3k4vb.table
+  - n_k2b7dm.brief -> n_a7r2mx.brief
+  - n_l2z5hf.result -> n_a7r2mx.review
+
+layout:
+  n_k2b7dm: { x: 60, y: 320 }
+  n_v6s3qt: { x: 420, y: 180 }
+  n_h4n5wy: { x: 780, y: 320 }
+  n_j7c2rf: { x: 1140, y: 140 }
+  n_d5g6pz: { x: 1500, y: 260 }
+  n_x3t4kv: { x: 1860, y: 260 }
+  n_y7m2bn: { x: 2220, y: 380 }
+  n_q4w6sc: { x: 2580, y: 200 }
+  n_l2z5hf: { x: 2940, y: 320 }
+  n_o6p3jt: { x: 3300, y: 200 }
+  n_w5f7dg: { x: 2580, y: 620 }
+  n_n3k4vb: { x: 2940, y: 620 }
+  n_a7r2mx: { x: 3300, y: 480 }

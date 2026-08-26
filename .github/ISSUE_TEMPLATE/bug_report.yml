@@ -1,0 +1,104 @@
+name: Bug report
+description: Something in the app, the engine, the CLI or a node behaves wrongly.
+labels: ['bug', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two things make a bug report actionable here more than anywhere else:
+        **the workflow document** (it is plain YAML — paste it) and **the run
+        event stream** (`pnpm cli run your-workflow.archspace.yaml` prints it,
+        with no Electron in the way). If you can attach both, this is usually
+        fixed on the first pass.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: The workflow document
+      description: >-
+        Paste the `.archspace.yaml`, trimmed to the smallest graph that still
+        reproduces it. Scrub anything private — but note that bindings and
+        secrets are never in the document by design, so this is normally safe
+        to paste as-is.
+      render: yaml
+
+  - type: textarea
+    id: events
+    attributes:
+      label: Run output
+      description: >-
+        Output of `pnpm cli run <workflow>` if the bug reproduces headlessly,
+        or the Execution panel's contents if it only happens in the app.
+      render: shell
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where does it happen?
+      multiple: true
+      options:
+        - Desktop app (canvas / inspector / run panel)
+        - Headless CLI (`pnpm cli run`)
+        - A specific node
+        - An MCP server connection
+        - An AI model profile
+        - A plugin
+        - Save / load / git diff of a workflow file
+        - Packaging, signing or auto-update
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Archspace version
+      description: About → version for a packaged build, or the commit SHA for a source build.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build-kind
+    attributes:
+      label: How are you running it?
+      options:
+        - A downloaded signed release
+        - A local build from source (`pnpm dev`)
+        - The CLI only
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: macOS version and chip
+      placeholder: 'e.g. macOS 15.3, Apple M2'
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node and pnpm versions (source builds only)
+      placeholder: 'node -v && pnpm -v'
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues.
+          required: true
+        - label: >-
+            I have removed credentials from anything I pasted. (Archspace keeps
+            secrets in the keychain and MCP bindings in machine-local settings,
+            so a workflow file should not contain any — if yours does, that is
+            itself the bug and it is a security report, not this form.)
+          required: true

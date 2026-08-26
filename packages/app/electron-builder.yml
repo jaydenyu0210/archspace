@@ -1,0 +1,126 @@
+# electron-builder configuration for the macOS build (ARCHITECTURE §13 /
+# ADR-0012). Read `docs/releasing.md` next to this file's changes — the two are
+# written to be kept in sync.
+#
+# Why this file and not a `build:` block in package.json: the packaging
+# decisions here need comments (entitlements especially), and package.json
+# cannot carry them.
+
+appId: dev.archspace.app
+productName: Archspace
+copyright: Copyright 2026 The Archspace Authors
+
+# `build/` holds entitlements. It intentionally does NOT hold `icon.icns`:
+# the repo ships no app icon yet. electron-builder falls back to the default
+# Electron icon and logs a warning rather than failing, which is what we want
+# for now — a fake icon would be worse than an obviously-missing one. Do not
+# add `mac.icon:` pointing at a path that does not exist; that IS a hard error.
+directories:
+  buildResources: build
+  # `dist/` (not `release/`) because the repo's .gitignore already ignores
+  # `dist/` — packaging output must never be a candidate for `git add`.
+  output: dist
+
+# electron-vite emits everything (including the workspace packages, which ship
+# TypeScript source and are bundled rather than externalised) into out/.
+# `resources/` is listed because main resolves the shipped example workflows via
+# `app.getAppPath() + '/resources'`; if that lookup ever moves to
+# `process.resourcesPath`, move these into extraResources below and drop the glob.
+files:
+  - out/**
+  - resources/**
+  - package.json
+  - '!**/*.map'
+  - '!**/{.DS_Store,.git,.github,.vscode}'
+
+# The first-party plugin is a REAL plugin loaded from disk by the plugin host
+# (ADR-0008: "if the boundary can't carry our own flagship domain feature, it's
+# decoration"). It therefore ships as files next to the app, not inside the
+# bundle graph — which is exactly how a user-installed plugin looks, so we
+# exercise the same code path we ask third parties to use.
+#
+# BUILD ORDER: `pnpm --filter @archspace/plugin-aec-review build` must run
+# before this config is evaluated, because `dist/index.js` below is a build
+# artifact. The release workflow does that explicitly; so does the root
+# `pnpm build` script.
+extraResources:
+  - from: ../../plugins/aec-review
+    to: plugins/aec-review
+    filter:
+      - archspace-plugin.json
+      - package.json
+      - dist/**
+      - '!dist/**/*.map'
+
+asar: true
+
+mac:
+  category: public.app-category.productivity
+
+  # DMG for humans, ZIP for electron-updater — the updater cannot consume a DMG.
+  # Universal: one artifact containing arm64 and x64 slices (ADR-0012).
+  target:
+    - target: dmg
+      arch: [universal]
+    - target: zip
+      arch: [universal]
+
+  # Hardened runtime ON, App Sandbox OFF. This is a deliberate, documented
+  # trade-off, not an oversight: the App Sandbox forbids spawning arbitrary
+  # child processes, and the product's spine is exactly that — stdio MCP
+  # servers (ARCHITECTURE §9.2) and one child process per installed plugin
+  # (§8.1). Sandboxing them would mean deleting the extension model. The
+  # consequence is accepted and stated: no Mac App Store in v1, and the
+  # security story is the process/permission architecture, not a checkbox.
+  hardenedRuntime: true
+  # No `entitlements.mas.plist`, no `mas` target: see above.
+  entitlements: build/entitlements.mac.plist
+  # Helper processes get the same file. `com.apple.security.inherit` — the usual
+  # reason for a separate inherit plist — is an App Sandbox key, and the sandbox
+  # is off, so a second file would only be a second thing to forget to update.
+  entitlementsInherit: build/entitlements.mac.plist
+
+  # Codesigning identity comes from CSC_LINK / CSC_KEY_PASSWORD in CI. Locally,
+  # electron-builder auto-discovers a Developer ID in the login keychain; set
+  # CSC_IDENTITY_AUTO_DISCOVERY=false to force an unsigned dev build.
+  # `notarize: true` is safe in both worlds: with no APPLE_API_* environment
+  # variables present, electron-builder logs "skipped macOS notarization" and
+  # continues, so a fork build degrades to unsigned instead of failing.
+  notarize: true
+
+  # macOS shows these strings in the consent dialog. Only ask for what the app
+  # actually does; every extra key is a prompt the user has to trust us about.
+  extendInfo:
+    NSHumanReadableCopyright: Copyright 2026 The Archspace Authors
+    # Opening a project directory is the core file-first UX (§11). macOS asks
+    # for Documents/Desktop/Downloads access the first time the user picks one.
+    NSDocumentsFolderUsageDescription: >-
+      Archspace opens project folders containing your workflows and model files.
+    NSDesktopFolderUsageDescription: >-
+      Archspace opens project folders containing your workflows and model files.
+    NSDownloadsFolderUsageDescription: >-
+      Archspace opens project folders containing your workflows and model files.
+
+dmg:
+  # Plain drag-to-Applications. No custom background art until there is an icon.
+  contents:
+    - x: 130
+      y: 220
+      type: file
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# electron-updater reads the same feed (ARCHITECTURE §13). Releases are created
+# as drafts so a human runs the release gate — `spctl -a` on a clean machine and
+# an n-1 -> n update check — before anyone can download the artifact.
+# owner/repo are PLACEHOLDERS: this working tree is not a git repository and
+# the canonical GitHub location has not been confirmed. Fix these before the
+# first tagged release — electron-updater bakes them into app-update.yml, so a
+# wrong value ships a broken update feed. See docs/releasing.md.
+publish:
+  - provider: github
+    owner: archspace
+    repo: archspace
+    releaseType: draft

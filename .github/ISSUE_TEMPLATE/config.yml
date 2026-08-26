@@ -1,0 +1,11 @@
+# Blank issues are off because every field in the templates below exists to
+# stop a round-trip ("which macOS?", "signed build or `pnpm dev`?"). Questions
+# and half-formed ideas belong in Discussions, not in a bug tracker.
+blank_issues_enabled: false
+contact_links:
+  - name: Question, idea, or "is this supposed to work?"
+    url: https://github.com/archspace/archspace/discussions
+    about: Anything that is not yet a reproducible defect or a concrete proposal.
+  - name: Security vulnerability
+    url: https://github.com/archspace/archspace/security/advisories/new
+    about: Report privately. Do not open a public issue — see SECURITY.md.

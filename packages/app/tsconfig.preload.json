@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Preload is the one place with both Node and DOM globals: it runs in the
+    // renderer process with Node APIs available, and relays MessagePorts into
+    // the main world via window.postMessage.
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["src/preload", "src/shared"]
+}

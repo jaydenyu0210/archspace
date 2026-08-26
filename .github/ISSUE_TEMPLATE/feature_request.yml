@@ -1,0 +1,53 @@
+name: Feature or node proposal
+description: A new node, a new capability, or a change to how something works.
+labels: ['enhancement', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) §15 first —
+        it is the ledger of things that are deliberately deferred and the hooks
+        that keep them cheap later. If your idea is on that list, say so and
+        argue that its time has come; that is a much shorter conversation.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >-
+        The AEC workflow you cannot do today, concretely. Not "add support for
+        X" — "I have 40 IFC files and I need to …".
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+      description: If it is a node, name its inputs, outputs and params.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: shape
+    attributes:
+      label: What shape does this take?
+      description: >-
+        Archspace has three extension points and picking the right one is most
+        of the design. A capability that needs Python, a geometry kernel or a
+        Windows-only API is an MCP server, not a core node (ARCHITECTURE §8.3).
+      options:
+        - A core node (`core.*` / `ai.*`) — pure TypeScript, no new dependency
+        - A plugin — a node set with its own dependencies, in its own process
+        - An MCP server — another language, a native library, or a remote system
+        - An app/UI change
+        - An engine or document-format change (needs an ADR)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Existing nodes, an MCP server, doing it by hand. Why they fall short.
