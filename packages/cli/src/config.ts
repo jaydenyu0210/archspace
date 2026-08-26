@@ -50,6 +50,21 @@ export function defaultConfigDir(): string {
   }
 }
 
+/**
+ * One consent record, as `plugins.json` is allowed to spell it. Kept narrow on
+ * purpose: this is a file a user hand-edits, and the plugin host trusts what
+ * this function admits, so anything it waves through becomes the host's problem.
+ */
+function isConsentRecord(value: unknown): value is { enabled: boolean; permissions: string[] } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as { enabled?: unknown; permissions?: unknown };
+  return (
+    typeof record.enabled === 'boolean' &&
+    Array.isArray(record.permissions) &&
+    record.permissions.every((p) => typeof p === 'string')
+  );
+}
+
 async function readOptional(path: string): Promise<string | null> {
   if (!existsSync(path)) return null;
   try {
@@ -70,13 +85,36 @@ export async function loadCliConfig(dir = defaultConfigDir()): Promise<CliConfig
   const aiParsed = aiText === null ? { config: defaultAiConfig(), issues: [] } : parseAiConfig(aiText);
   for (const issue of aiParsed.issues) issues.push(`${AI_CONFIG_FILENAME} ${issue.path}: ${issue.message}`);
 
-  let pluginConsent: CliConfig['pluginConsent'] = {};
+  const pluginConsent: CliConfig['pluginConsent'] = {};
   const consentText = await readOptional(join(dir, 'plugins.json'));
   if (consentText !== null) {
     try {
       const parsed: unknown = JSON.parse(consentText);
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-        pluginConsent = parsed as CliConfig['pluginConsent'];
+        // Validated record by record rather than cast wholesale. The cast was
+        // load-bearing in the wrong direction: a half-written entry reaches
+        // `[...entry.permissions]` in the plugin host and throws there, far
+        // from the file that caused it. A bad record is dropped — which leaves
+        // its plugin unconsented, the safe direction — and reported by name.
+        for (const [id, entry] of Object.entries(parsed)) {
+          if (isConsentRecord(entry)) {
+            pluginConsent[id] = { enabled: entry.enabled, permissions: [...entry.permissions] };
+          } else {
+            issues.push(
+              `plugins.json: the consent record for "${id}" is malformed (expected {"enabled": boolean, "permissions": string[]}); treating that plugin as unconsented`,
+            );
+          }
+        }
+      } else {
+        // Valid JSON of the wrong shape — `[]`, `42`, `null`, a bare string.
+        // This used to fall through silently, which is the worst outcome
+        // available: every plugin ends up unconsented, so the user's workflow
+        // fails with "unknown type" and nothing anywhere mentions the file
+        // that caused it. Unparseable JSON already reported itself; being
+        // quieter about a subtler corruption of the same file made no sense.
+        issues.push(
+          'plugins.json does not contain a consent object (expected {"<plugin-id>": {"enabled": …}}); treating every plugin as unconsented',
+        );
       }
     } catch {
       issues.push('plugins.json is not valid JSON; treating every plugin as unconsented');
