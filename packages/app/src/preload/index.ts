@@ -9,7 +9,7 @@
  * through main instead of living in the renderer (ARCHITECTURE §12).
  */
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ArchspaceBridge, MenuAction } from '../shared/protocol';
+import { ENGINE_PORT_MESSAGE, type ArchspaceBridge, type MenuAction } from '../shared/protocol';
 
 const bridge: ArchspaceBridge = {
   openDialog: () => ipcRenderer.invoke('workflow:open-dialog'),
@@ -54,5 +54,5 @@ contextBridge.exposeInMainWorld('archspace', bridge);
 // via window.postMessage, which CAN transfer ports across the isolation
 // boundary.
 ipcRenderer.on('engine:port', (event) => {
-  window.postMessage({ type: 'archspace:engine-port' }, '*', event.ports);
+  window.postMessage({ type: ENGINE_PORT_MESSAGE }, '*', event.ports);
 });

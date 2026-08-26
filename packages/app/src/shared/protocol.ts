@@ -258,5 +258,12 @@ export interface ArchspaceBridge {
 export const OAUTH_REDIRECT_PORT = 33418;
 export const OAUTH_REDIRECT_URI = `http://127.0.0.1:${OAUTH_REDIRECT_PORT}/callback`;
 
-/** Marker property on the window message that carries the engine MessagePort. */
+/**
+ * Marker property on the window message that carries the engine MessagePort.
+ *
+ * Imported by BOTH sides — preload posts it, the renderer filters on it — which
+ * is the entire reason it is a shared constant. Both used to spell the string
+ * literally instead, so changing one would have silently stopped the port ever
+ * arriving: no error, no failed IPC, just a canvas that never becomes ready.
+ */
 export const ENGINE_PORT_MESSAGE = 'archspace:engine-port';

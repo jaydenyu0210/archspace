@@ -23,6 +23,7 @@
  */
 import type { EngineGraph } from '@archspace/engine';
 import type { ProfileProbeResult } from '@archspace/ai-gateway';
+import { ENGINE_PORT_MESSAGE } from '../../shared/protocol';
 import type { EngineRequest, EngineResponse } from '../../shared/protocol';
 import { useStore } from './store';
 
@@ -136,7 +137,7 @@ function handleResponse(msg: EngineResponse): void {
 
 export function initEngineClient(): void {
   window.addEventListener('message', (e: MessageEvent) => {
-    if (e.data?.type !== 'archspace:engine-port') return;
+    if (e.data?.type !== ENGINE_PORT_MESSAGE) return;
     const newPort = e.ports[0];
     if (!newPort) return;
     port?.close();

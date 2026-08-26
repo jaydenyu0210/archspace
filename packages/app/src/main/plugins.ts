@@ -17,7 +17,7 @@
  *     fault isolation plus permission mediation, not a hardened sandbox.
  */
 import { dialog, type BrowserWindow } from 'electron';
-import { rm } from 'node:fs/promises';
+
 import { basename } from 'node:path';
 import {
   describePermission,
@@ -29,9 +29,13 @@ import type { PluginConsentState, PluginInstallResult, SettingsResult } from '..
 import { loadPluginConsent, savePluginConsent, userPluginsDir } from './settings';
 
 function consentBody(manifest: PluginManifest, containsNativeCode: boolean): string {
+  // The blank entries are deliberate paragraph breaks. An absent author
+  // contributes NO line rather than an empty one — it used to add `''`, which
+  // showed as a second blank line in the sheet, and the `.filter()` that was
+  // meant to remove it read `line !== '' || true` and so removed nothing.
   const lines: string[] = [
     `${manifest.displayName} ${manifest.version}`,
-    manifest.author !== undefined ? `by ${manifest.author}` : '',
+    ...(manifest.author !== undefined ? [`by ${manifest.author}`] : []),
     '',
     `It provides node types under “${manifest.namespace}.”.`,
     '',
@@ -57,7 +61,7 @@ function consentBody(manifest: PluginManifest, containsNativeCode: boolean): str
     );
   }
 
-  return lines.filter((line) => line !== '' || true).join('\n');
+  return lines.join('\n');
 }
 
 /**
@@ -137,11 +141,6 @@ export async function uninstallPlugin(win: BrowserWindow, id: string): Promise<S
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
-}
-
-/** Drop a half-unpacked directory left behind by a failed install. */
-export async function cleanupPartialInstall(dir: string): Promise<void> {
-  await rm(dir, { recursive: true, force: true }).catch(() => {});
 }
 
 export type { PluginConsentState };
