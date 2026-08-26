@@ -6,9 +6,9 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && node scripts/check-bundle.mjs",
     "preview": "electron-vite preview",
-    "dist": "electron-vite build && electron-builder --mac --universal --publish never",
+    "dist": "electron-vite build && node scripts/check-bundle.mjs && electron-builder --mac --universal --publish never",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.preload.json && tsc --noEmit -p tsconfig.web.json"
   },
