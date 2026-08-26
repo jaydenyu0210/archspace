@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type {
   McpBinding,
   McpConfig,
@@ -59,6 +59,15 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_CONCURRENCY = 1;
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
+
+/**
+ * Identity of a draft that is not yet editing a saved server. Plain `'new'`
+ * was rejected because `new` is itself a legal server name (SERVER_NAME) and
+ * a user who had one would find the editor scrolling on the wrong row; `#`
+ * cannot appear in a name, so this is collision-proof by construction — and
+ * unlike a literal NUL it stays readable in grep, diffs and review.
+ */
+const NEW_SERVER_KEY = '#new';
 
 type ControlKind = 'connect' | 'disconnect' | 'refresh';
 
@@ -376,6 +385,8 @@ export function McpPanel({ platform }: SettingsPanelProps) {
 
   const [config, setConfig] = useState<McpConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
+  /** What the validator objected to in the file on disk. See LoadedConfig. */
+  const [configIssues, setConfigIssues] = useState<string[]>([]);
   const [secretKeys, setSecretKeys] = useState<string[] | null>(null);
 
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -388,16 +399,38 @@ export function McpPanel({ platform }: SettingsPanelProps) {
   const [controlError, setControlError] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
+  /**
+   * The last write that actually landed, said IN the panel. `notify` is the
+   * shell's channel and is still called, but the notice layer sits BEHIND the
+   * settings backdrop, so a toast is the one confirmation a user of this dialog
+   * cannot see. Nothing here may be the only record of a change.
+   */
+  const [lastAction, setLastAction] = useState<string | null>(null);
+
   const [tokenValue, setTokenValue] = useState('');
   const [secretBusy, setSecretBusy] = useState(false);
   const [secretError, setSecretError] = useState<string | null>(null);
 
   const ids = useId();
+  const editorRef = useRef<HTMLElement>(null);
+
+  /**
+   * The editor renders below the list, so pressing Edit on the ninth server
+   * opens a form the user cannot see. Keyed on WHICH server is being edited,
+   * not on the draft itself, so typing in the form does not keep yanking the
+   * scroll position back.
+   */
+  const editingKey = draft === null ? null : (draft.originalName ?? NEW_SERVER_KEY);
+  useEffect(() => {
+    if (editingKey !== null) editorRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [editingKey]);
 
   const loadConfig = useCallback(async (): Promise<void> => {
     setConfigError(null);
     try {
-      setConfig(await window.archspace.getMcpConfig());
+      const loaded = await window.archspace.getMcpConfig();
+      setConfig(loaded.config);
+      setConfigIssues(loaded.issues);
     } catch (err) {
       setConfigError(message(err));
     }
@@ -461,6 +494,7 @@ export function McpPanel({ platform }: SettingsPanelProps) {
     setAttempted(false);
     setWriteError(null);
     setSecretError(null);
+    setLastAction(null);
     setTokenValue('');
   };
 
@@ -469,6 +503,7 @@ export function McpPanel({ platform }: SettingsPanelProps) {
     setAttempted(false);
     setWriteError(null);
     setSecretError(null);
+    setLastAction(null);
     setTokenValue('');
   };
 
@@ -481,6 +516,7 @@ export function McpPanel({ platform }: SettingsPanelProps) {
   const writeConfig = async (next: McpConfig, done: string): Promise<boolean> => {
     setSaving(true);
     setWriteError(null);
+    setLastAction(null);
     try {
       const result = await window.archspace.setMcpConfig(next);
       if (!result.ok) {
@@ -491,6 +527,7 @@ export function McpPanel({ platform }: SettingsPanelProps) {
       // Main pushed the new config to the engine on the control channel; that
       // push does not order against this IPC reply, so ask for the truth.
       requestEngineStatus();
+      setLastAction(done);
       notify('info', done);
       return true;
     } catch (err) {
@@ -556,6 +593,7 @@ export function McpPanel({ platform }: SettingsPanelProps) {
   const storeToken = async (key: string): Promise<void> => {
     setSecretBusy(true);
     setSecretError(null);
+    setLastAction(null);
     try {
       const result = await window.archspace.setSecret(key, tokenValue);
       if (!result.ok) {
@@ -565,6 +603,7 @@ export function McpPanel({ platform }: SettingsPanelProps) {
       setTokenValue('');
       await loadSecretKeys();
       requestEngineStatus();
+      setLastAction(`Stored a value for the secret "${key}" in the keychain.`);
       notify('info', `Stored a value for the secret "${key}".`);
     } catch (err) {
       setSecretError(message(err));
@@ -576,6 +615,7 @@ export function McpPanel({ platform }: SettingsPanelProps) {
   const deleteToken = async (key: string): Promise<void> => {
     setSecretBusy(true);
     setSecretError(null);
+    setLastAction(null);
     try {
       const result = await window.archspace.deleteSecret(key);
       if (!result.ok) {
@@ -584,6 +624,7 @@ export function McpPanel({ platform }: SettingsPanelProps) {
       }
       await loadSecretKeys();
       requestEngineStatus();
+      setLastAction(`Deleted the secret "${key}" from the keychain.`);
       notify('info', `Deleted the secret "${key}".`);
     } catch (err) {
       setSecretError(message(err));
@@ -598,7 +639,7 @@ export function McpPanel({ platform }: SettingsPanelProps) {
     const ref = current.bearerTokenRef.trim();
     const stored = secretKeys === null ? null : secretKeys.includes(ref);
     return (
-      <section className="settings-section">
+      <section className="settings-section" ref={editorRef}>
         <div className="settings-section-head">
           <h3 className="settings-heading">
             {current.originalName === null ? 'Add a server' : `Edit "${current.originalName}"`}
@@ -970,6 +1011,8 @@ export function McpPanel({ platform }: SettingsPanelProps) {
           </div>
         )}
 
+        {lastAction !== null && <div className="settings-note settings-note--info">{lastAction}</div>}
+
         <div className="settings-actions">
           <button className="settings-btn settings-btn--primary" disabled={saving} onClick={() => void save()}>
             {saving && <span className="settings-spinner" />}
@@ -1275,11 +1318,13 @@ export function McpPanel({ platform }: SettingsPanelProps) {
           reload; anything saved here is rewritten deterministically, comments in the header aside.
         </div>
         <div className="settings-note settings-note--unimplemented">
-          Two things this panel does not do. It cannot forget a stored OAuth registration or token
+          Three things this panel does not do. It cannot forget a stored OAuth registration or token
           for a server — the app has no call for that yet, so re-authorizing a server that went wrong
-          means clearing the keychain entry by hand. And it cannot import the bindings a workflow
+          means clearing the keychain entry by hand. It cannot import the bindings a workflow
           suggests in its <span className="mono">requires:</span> block; that consent flow is not
-          built, so every server here is one you added yourself.
+          built, so every server here is one you added yourself. And it cannot show you why a
+          hand-written entry was rejected: the parser reports its reasons, but nothing carries them
+          to this screen yet, so a malformed server simply will not appear in the list below.
         </div>
       </section>
 
@@ -1314,26 +1359,46 @@ export function McpPanel({ platform }: SettingsPanelProps) {
           </div>
         )}
 
+        {configIssues.length > 0 && (
+          <div className="settings-note settings-note--warn">
+            <strong>mcp.yaml was not fully understood.</strong> Every binding the parser
+            could not read was dropped, so a server you configured may simply be absent
+            from the list below rather than merely disconnected. Fix the file and reopen
+            this panel.
+            <ul className="settings-issue-list">
+              {configIssues.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {writeError !== null && draft === null && (
           <div className="settings-note settings-note--error">mcp.yaml was not written: {writeError}</div>
+        )}
+
+        {lastAction !== null && draft === null && (
+          <div className="settings-note settings-note--info">{lastAction}</div>
         )}
 
         {config === null && configError === null ? (
           <div className="settings-loading">
             <span className="settings-spinner" /> Reading mcp.yaml…
           </div>
-        ) : rows.length === 0 ? (
+        ) : rows.length > 0 ? (
+          <div className="settings-list">{rows.map((row) => serverRow(row.name, row.server, row.status))}</div>
+        ) : configError === null ? (
           <div className="settings-empty">
             <div className="settings-empty-title">No servers bound</div>
             <div className="settings-empty-text">
-              A fresh install binds nothing — inventing plausible bindings would only fill this list
-              with servers that were never going to connect. Add one, or write it into mcp.yaml by
-              hand and reload.
+              No binding came out of mcp.yaml. On a fresh install that is simply an empty file; it
+              is also what you would see if everything in the file failed to parse, because those
+              reasons do not reach this screen yet. Inventing plausible bindings would only fill
+              this list with servers that were never going to connect — add one, or write it into
+              mcp.yaml by hand and reload.
             </div>
           </div>
-        ) : (
-          <div className="settings-list">{rows.map((row) => serverRow(row.name, row.server, row.status))}</div>
-        )}
+        ) : null /* The read failed: "nothing is bound" is a claim we cannot make. */}
       </section>
 
       {draft !== null && review !== null && editor(draft, review)}

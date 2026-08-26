@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   PROVIDERS,
   providerById,
@@ -267,6 +267,8 @@ export function AiPanel(props: SettingsPanelProps) {
 
   const [config, setConfig] = useState<AiGatewayConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
+  /** What the validator objected to in the file on disk. See LoadedConfig. */
+  const [configIssues, setConfigIssues] = useState<string[]>([]);
 
   const [secretKeys, setSecretKeys] = useState<SecretKeyInfo[] | null>(null);
   const [secretsError, setSecretsError] = useState<string | null>(null);
@@ -284,11 +286,22 @@ export function AiPanel(props: SettingsPanelProps) {
   const [probes, setProbes] = useState<Record<string, ProfileProbeResult>>({});
   const [probing, setProbing] = useState<string | null>(null);
 
+  // The editor renders below the list, and the dialog body scrolls: on a long
+  // list, "Edit" would otherwise open a form the user cannot see.
+  const editorRef = useRef<HTMLDivElement>(null);
+  const editing = draft !== null;
+  useEffect(() => {
+    if (editing) editorRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [editing]);
+
   const loadConfig = useCallback(() => {
     setConfigError(null);
     void window.archspace
       .getAiConfig()
-      .then(setConfig)
+      .then((loaded) => {
+        setConfig(loaded.config);
+        setConfigIssues(loaded.issues);
+      })
       .catch((err: unknown) => setConfigError(errText(err)));
   }, []);
 
@@ -359,7 +372,9 @@ export function AiPanel(props: SettingsPanelProps) {
         }
         // Read back rather than trust the object we sent: the file is the
         // record, and this panel should be showing what is in it.
-        setConfig(await window.archspace.getAiConfig());
+        const reloaded = await window.archspace.getAiConfig();
+        setConfig(reloaded.config);
+        setConfigIssues(reloaded.issues);
         requestEngineStatus();
         notify('info', done);
         return true;
@@ -510,6 +525,22 @@ export function AiPanel(props: SettingsPanelProps) {
             Reveal
           </button>
         </div>
+        {/* The bridge hands this panel `getAiConfig()`'s RESULT and drops the
+            validator's issues (main/index.ts: `settings:get-ai`), so a config
+            that came out of the fallback path is byte-for-byte indistinguishable
+            here from one the file really says. Saying so is the only honest move
+            available from this side; carrying the issues across the bridge is the
+            real fix and is not this panel's to make. */}
+        <div className="settings-note settings-note--unimplemented">
+          What this panel cannot tell you about that file. If it will not parse, or holds no usable
+          profile, the app falls back to its built-in profiles for the session and leaves your file
+          untouched — and only the resulting config reaches this window, never the reason, so a
+          fallback list looks exactly like a file that really says this. Single entries the
+          validator refuses outright — no name, an unknown provider id, a duplicate name — are
+          dropped just as quietly. Until those reasons reach this screen, read the file itself
+          before trusting a list that surprises you: saving from here writes what you see over
+          what is in it.
+        </div>
         {!engineReady && (
           <div className="settings-note settings-note--warn">
             The engine is not connected, so no binding below has been checked against the keychain
@@ -539,6 +570,20 @@ export function AiPanel(props: SettingsPanelProps) {
           </div>
         </div>
 
+        {configIssues.length > 0 && (
+          <div className="settings-note settings-note--warn">
+            <strong>ai.yaml was not fully understood.</strong> Everything the validator
+            could not read was skipped, so a profile you wrote may be missing below or
+            may be showing a generated fallback rather than your own settings. Fix the
+            file and reopen this panel.
+            <ul className="settings-issue-list">
+              {configIssues.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {configError !== null && (
           <>
             <div className="settings-note settings-note--error">
@@ -560,7 +605,8 @@ export function AiPanel(props: SettingsPanelProps) {
 
         {blockingIssues.length > 0 && (
           <div className="settings-note settings-note--error">
-            Not saved — the file would not survive being read back:
+            Not saved. This is what the same validator says would happen to the file on its way
+            back in — so nothing was written:
             <div className="settings-kv">
               {blockingIssues.map((issue, i) => (
                 <Fragment key={`${issue.path}-${i}`}>
@@ -702,6 +748,20 @@ export function AiPanel(props: SettingsPanelProps) {
                         This profile calls nothing. The <span className="mono">mock</span> provider
                         returns deterministic scripted text for offline demos and CI — a successful
                         probe here proves this app works, not that any model or provider does.
+                        {/* ADR-0010 §4 says the mock provider is never a default. If the file
+                            makes it one anyway, the consequence is every AI node in every
+                            workflow, so it is said here rather than left to be inferred from
+                            two badges sitting next to each other. */}
+                        {isDefault && (
+                          <>
+                            {' '}
+                            <strong>
+                              It is also the default profile, so every workflow that does not name
+                              another one is answered by that scripted text and never reaches a
+                              model.
+                            </strong>
+                          </>
+                        )}
                       </div>
                     )}
                     {provider !== undefined && provider.kind !== 'test' && (
@@ -794,6 +854,11 @@ export function AiPanel(props: SettingsPanelProps) {
                           {probe.latencyMs !== undefined && (
                             <span className="settings-item-meta">{probe.latencyMs} ms round trip</span>
                           )}
+                          {provider?.kind === 'test' && (
+                            <span className="settings-item-meta">
+                              scripted answer — nothing left this machine
+                            </span>
+                          )}
                         </div>
                         <div className="settings-kv">
                           {probe.sample !== undefined && (
@@ -821,7 +886,7 @@ export function AiPanel(props: SettingsPanelProps) {
 
       {/* ---- the editor -------------------------------------------------- */}
       {draft !== null && config !== null && (
-        <div className="settings-section">
+        <div className="settings-section" ref={editorRef}>
           <div className="settings-section-head">
             <h4 className="settings-subheading">
               {draft.original === null ? 'New profile' : `Editing "${draft.original}"`}

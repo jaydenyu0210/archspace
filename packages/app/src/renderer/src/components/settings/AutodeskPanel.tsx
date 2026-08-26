@@ -345,11 +345,15 @@ export function AutodeskPanel({ platform }: SettingsPanelProps) {
 
         <div className="settings-item-body">
           <div className="settings-subheading">Requires</div>
+          {/* Plain lines, not disabled checkboxes: an unticked box states that the
+              requirement is UNMET, which is a status this panel says in the very
+              next sentence that it cannot determine. A control that asserts a
+              state nothing checked is the small version of the failure this
+              screen exists to prevent. */}
           {cap.requires.map((requirement, i) => (
-            <label className="settings-check is-disabled" key={i}>
-              <input type="checkbox" disabled />
-              <span>{requirement}</span>
-            </label>
+            <div className="settings-item-desc" key={i}>
+              — {requirement}
+            </div>
           ))}
           <div className="panel-hint">
             Archspace cannot check any of these for you — they are what you have to supply, and
@@ -377,7 +381,7 @@ export function AutodeskPanel({ platform }: SettingsPanelProps) {
         <div className="settings-item-head">
           <span className="settings-item-name">{preset.label}</span>
           <span className={`badge ${availability.available ? 'badge--ok' : 'badge--warn'}`}>
-            {availability.available ? 'available here' : 'not available here'}
+            {availability.available ? 'usable from here' : 'not usable from here'}
           </span>
           <span className="badge badge--muted">{preset.config.binding.transport}</span>
         </div>
@@ -393,17 +397,24 @@ export function AutodeskPanel({ platform }: SettingsPanelProps) {
         {bound !== undefined && (
           <div className="settings-note settings-note--info">
             Already bound in mcp.yaml as <span className="mono">{bound.name}</span> — the engine
-            currently reports it as {bound.state}
-            {bound.enabled ? '' : ' (disabled)'}. Manage it on the MCP Servers tab.
+            currently reports it as <span className="mono">{bound.state}</span>. Manage it on the MCP
+            Servers tab.
+            {/* The host's own platform gate (mcpSupportCheck), quoted rather than
+                re-derived: it is what turns "this cannot run here" into a reason
+                instead of a spawn error. */}
+            {bound.unsupportedReason !== undefined && (
+              <>
+                {' '}
+                It cannot run on this machine: {bound.unsupportedReason}
+              </>
+            )}
           </div>
         )}
 
         <div className="settings-item-body">
           <div className="settings-subheading">Fields you must fill</div>
           {preset.placeholders.length === 0 ? (
-            <div className="panel-hint">
-              None — this preset has no fillable fields, because it is not offered as usable.
-            </div>
+            <div className="panel-hint">None — this preset declares no fields to fill.</div>
           ) : (
             preset.placeholders.map((placeholder) => (
               <div className="settings-row settings-row--stack" key={placeholder.path}>
@@ -467,8 +478,8 @@ export function AutodeskPanel({ platform }: SettingsPanelProps) {
             <h3 className="settings-heading">Autodesk &amp; Revit</h3>
           </div>
           <div className="settings-note settings-note--error">
-            Could not read the Autodesk capability map from the app: {loadError}. Nothing is shown
-            below rather than a guess at what this machine can reach.
+            Could not read the Autodesk capability map from the app: {loadError}. Nothing is listed
+            here rather than a guess at what this machine can reach.
           </div>
           <div className="settings-actions">
             <button className="settings-btn settings-btn--small" onClick={load}>
@@ -513,9 +524,9 @@ export function AutodeskPanel({ platform }: SettingsPanelProps) {
           <span className="settings-kv-value">{summary.total}</span>
           <span className="settings-kv-key">Usable from here</span>
           <span className="settings-kv-value">{summary.usableHere}</span>
-          <span className="settings-kv-key">Need a Windows host</span>
+          <span className="settings-kv-key">Real, not usable from here</span>
           <span className="settings-kv-value">{summary.blockedHere}</span>
-          <span className="settings-kv-key">Not implemented</span>
+          <span className="settings-kv-key">Not implemented anywhere</span>
           <span className="settings-kv-value">{summary.unimplemented}</span>
         </div>
 
@@ -551,8 +562,8 @@ export function AutodeskPanel({ platform }: SettingsPanelProps) {
           <h3 className="settings-heading">Capability matrix</h3>
         </div>
         <p className="settings-section-desc">
-          Every capability the research confirmed, and every one it confirmed does not exist here.
-          Status is resolved for this machine; &ldquo;server side runs on&rdquo; is where the
+          Every Autodesk capability the research confirmed exists, and every one this app has not
+          built. Status is resolved for this machine; &ldquo;server side runs on&rdquo; is where the
           capability&rsquo;s own server has to live, not where Archspace runs. Open the evidence on
           any row to see the claim, its source and whether that page could actually be retrieved.
         </p>

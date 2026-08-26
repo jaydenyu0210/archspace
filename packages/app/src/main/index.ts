@@ -131,9 +131,10 @@ function toEngine(msg: EngineControlRequest): void {
 
 async function pushConfig(): Promise<void> {
   const [mcp, ai, pluginConsent] = await Promise.all([loadMcpConfig(), loadAiConfig(), loadPluginConsent()]);
-  for (const issue of [...mcp.issues, ...ai.issues]) {
-    win?.webContents.send('settings:issue', issue);
-  }
+  // Parse issues are NOT pushed from here. They used to go out on a
+  // `settings:issue` channel with no subscriber on the other end; they now
+  // travel back with `getMcpConfig`/`getAiConfig`, so the panel that renders a
+  // config renders what was wrong with it, at the moment someone is looking.
   toEngine({ t: 'config', mcp: mcp.config, ai: ai.config, pluginConsent });
 }
 
@@ -341,7 +342,7 @@ ipcMain.handle(
   }),
 );
 
-ipcMain.handle('settings:get-mcp', async () => (await loadMcpConfig()).config);
+ipcMain.handle('settings:get-mcp', async () => loadMcpConfig());
 ipcMain.handle('settings:set-mcp', async (_e, config: McpConfig) => {
   try {
     await saveMcpConfig(config);
@@ -352,7 +353,7 @@ ipcMain.handle('settings:set-mcp', async (_e, config: McpConfig) => {
   }
 });
 
-ipcMain.handle('settings:get-ai', async () => (await loadAiConfig()).config);
+ipcMain.handle('settings:get-ai', async () => loadAiConfig());
 ipcMain.handle('settings:set-ai', async (_e, config: AiGatewayConfig) => {
   try {
     await saveAiConfig(config);

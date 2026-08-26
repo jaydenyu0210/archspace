@@ -180,7 +180,7 @@ function PluginRow(props: PluginRowProps) {
   // not run however it is consented, and offering to enable it would be a
   // button that cannot work.
   const consentable = plugin.state === 'loaded' || plugin.state === 'disabled' || plugin.state === 'needs-consent';
-  const granted = plugin.state === 'loaded' || plugin.state === 'disabled';
+  const consented = plugin.state === 'loaded' || plugin.state === 'disabled';
   const removable = plugin.source === 'user';
 
   return (
@@ -197,7 +197,7 @@ function PluginRow(props: PluginRowProps) {
         )}
         <div className="settings-item-actions">
           {busy && <span className="settings-spinner" />}
-          {granted && (
+          {consented && (
             <label className={`settings-check${anyBusy ? ' is-disabled' : ''}`}>
               <input
                 type="checkbox"
@@ -215,16 +215,16 @@ function PluginRow(props: PluginRowProps) {
           )}
           {consentable && consent !== undefined && (
             <button
-              className="settings-btn settings-btn--danger settings-btn--small"
+              className="settings-btn settings-btn--small"
               disabled={anyBusy}
-              title="Forget this decision. The plugin stops and asks again next time."
+              title="Forget this decision. The plugin stops and is asked for again next time."
               onClick={props.onRevoke}
             >
               Revoke consent
             </button>
           )}
           {!consentable && consent !== undefined && (
-            <button className="settings-btn settings-btn--danger settings-btn--small" disabled={anyBusy} onClick={props.onRevoke}>
+            <button className="settings-btn settings-btn--small" disabled={anyBusy} onClick={props.onRevoke}>
               Forget consent record
             </button>
           )}
@@ -516,9 +516,11 @@ export function PluginsPanel(props: SettingsPanelProps) {
           {engineReady && <span className="badge badge--muted">{plugins.length} installed</span>}
         </div>
         <p className="settings-section-desc">
-          Each installed plugin runs in its own child process of the engine and reaches only what its manifest declared
-          and you granted: the asset store, the secrets it named, the AI gateway, and network access if it asked for it.
-          It cannot reach your project folder, the rest of your disk, other plugins, or this window.
+          Each installed plugin runs in its own child process of the engine and is handed only what its manifest
+          declared and you granted: the asset store, the secrets it named, the AI gateway, and network access if it
+          asked for it. Nothing in that API leads to your project folder, the rest of your disk, other plugins, or
+          this window — which is a description of what a plugin is <em>given</em>, and the paragraph below is why that
+          is a smaller guarantee than it sounds.
         </p>
         <div className="settings-note settings-note--warn">
           That boundary is fault isolation plus permission mediation — <strong>not</strong> a hardened security sandbox
@@ -543,14 +545,13 @@ export function PluginsPanel(props: SettingsPanelProps) {
           >
             Reload plugins
           </button>
-          <div className="settings-toolbar-spacer" />
         </div>
 
         {panelBusy !== null && (
           <div className="settings-loading">
             <span className="settings-spinner" />
             {panelBusy === 'install'
-              ? 'Choose a plugin, then review what it asks for — the sheet belongs to the app window.'
+              ? 'Waiting on the install and consent sheets — they open over the main window.'
               : 'Re-scanning the plugin directories…'}
           </div>
         )}
@@ -558,10 +559,18 @@ export function PluginsPanel(props: SettingsPanelProps) {
         {panelError !== null && <div className="settings-note settings-note--error">{panelError}</div>}
 
         {consentError !== null && (
-          <div className="settings-note settings-note--error">
-            Could not read the consent file: {consentError}. Granting or revoking consent is disabled until it can be
-            read, because a write would have to overwrite a file this panel never saw.
-          </div>
+          <>
+            <div className="settings-note settings-note--error">
+              Could not read the consent file: {consentError}. Granting, revoking and enabling are disabled until it can
+              be read — a write from here would have to overwrite a file this panel never saw, and could silently drop
+              another plugin&apos;s decision.
+            </div>
+            <div className="settings-actions">
+              <button className="settings-btn settings-btn--small" onClick={loadConsent}>
+                Try again
+              </button>
+            </div>
+          </>
         )}
 
         {blockedBundled.length > 0 && (

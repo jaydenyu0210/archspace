@@ -1030,6 +1030,20 @@ body {
 .settings-note--info { border-left-color: var(--blueprint); }
 .settings-note--warn { border-left-color: var(--warn); color: var(--warn); }
 .settings-note--error { border-left-color: var(--err); color: var(--err); }
+/* Validator complaints listed inside a note. Monospaced because every entry
+   names a path into the user's own file (`servers.revit.url`), and a path that
+   reflows mid-token is a path nobody can find. */
+.settings-issue-list {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  list-style: disc;
+}
+.settings-issue-list li {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 /* THE honesty affordance (house rule): where a capability is not built, the
    UI says so in the UI. Outlined, not coloured — it is an absence, not a fault. */
 .settings-note--unimplemented {

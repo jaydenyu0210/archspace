@@ -144,6 +144,23 @@ export type MenuAction =
 
 export type SettingsResult = { ok: true } | { ok: false; error: string };
 
+/**
+ * A hand-editable config file as main loaded it, plus whatever the validator
+ * objected to on the way in.
+ *
+ * The issues travel WITH the config rather than as a separate notification,
+ * because the two are only meaningful together. Both loaders fall back to a
+ * generated default when a file is malformed, so a panel handed the config
+ * alone renders invented profiles and servers as though the user had written
+ * them — the file is broken, the screen looks fine, and nothing connects the
+ * two. Main used to send these on a `settings:issue` channel that no renderer
+ * ever subscribed to, which is the same failure with extra steps.
+ */
+export interface LoadedConfig<T> {
+  config: T;
+  issues: string[];
+}
+
 /** Secret keys are listed to the renderer; secret VALUES never are. */
 export interface SecretKeyInfo {
   key: string;
@@ -195,13 +212,13 @@ export interface ArchspaceBridge {
   platform(): Promise<PlatformInfo>;
 
   /** MCP server bindings — machine-local settings, never the workflow file. */
-  getMcpConfig(): Promise<McpConfig>;
+  getMcpConfig(): Promise<LoadedConfig<McpConfig>>;
   setMcpConfig(config: McpConfig): Promise<SettingsResult>;
   /** Reveal mcp.yaml / ai.yaml in Finder for hand editing. */
   revealPath(path: string): Promise<void>;
 
   /** AI model profiles. Keys are stored by REFERENCE; values go to secrets. */
-  getAiConfig(): Promise<AiGatewayConfig>;
+  getAiConfig(): Promise<LoadedConfig<AiGatewayConfig>>;
   setAiConfig(config: AiGatewayConfig): Promise<SettingsResult>;
 
   /** Secrets live in the OS keychain via safeStorage; values are write-only
