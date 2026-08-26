@@ -20,24 +20,29 @@ same lint/typecheck/test gate as every pull request.
 > identity exists in the environment this repo was built in, no tag has been
 > pushed, and no artifact has been through `notarytool`. Everything here is
 > written from the configuration in the repository, not from a release that
-> happened. Section [Known gaps](#known-gaps-before-the-first-release) lists the
-> things that are still wrong and will bite the first person who tries.
+> happened. §8 lists what is still unfinished.
 
 ---
 
 ## 1. The pipeline in one paragraph
 
 Push a `v*` tag → `.github/workflows/release.yml` runs on `macos-latest` →
-lint, typecheck, build the first-party plugin, test, headless CLI run → check
-whether the signing secrets are present → if they are, `electron-builder`
-packages a universal DMG + ZIP, signs them with your Developer ID Application
-certificate, submits them to Apple for notarization, and creates a **draft**
-GitHub Release; if they are not, it packages the same artifacts **unsigned**,
-labels them `UNSIGNED`, publishes nothing, and says so in the job summary. A
-human then runs the [release gate](#6-the-release-gate) and publishes the draft.
+the tag and `packages/app/package.json` must agree on the version → lint,
+typecheck, build the first-party plugin, test, headless CLI run → one step
+decides whether this run signs and whether it publishes → if the signing secrets
+are present, `electron-builder` packages a universal DMG + ZIP, signs them with
+your Developer ID Application certificate, submits them to Apple for
+notarization, and (on a tag, with a real update feed configured) creates a
+**draft** GitHub Release; if the secrets are absent it packages the same
+artifacts **unsigned**, labels them `UNSIGNED`, publishes nothing, and says so in
+the job summary. Either way the built `.app` is then inspected to prove its
+internal layout matches what main resolves at runtime. A human runs the
+[release gate](#6-the-release-gate) and publishes the draft.
 
 `workflow_dispatch` does the same thing without a tag, for dry runs. It never
-publishes.
+publishes, and that is enforced by keying `--publish` off the *event* rather than
+off the secrets — a manual run in the canonical repo has every secret it needs to
+publish and must still refuse to.
 
 ---
 
@@ -46,32 +51,28 @@ publishes.
 Six repository secrets appear in `release.yml`. Set them under
 **Settings → Secrets and variables → Actions → Repository secrets**.
 
-| Secret | What it is | What breaks without it |
+| Secret | What it is | Required? |
 |---|---|---|
-| `CSC_LINK` | Base64 of your Developer ID Application `.p12` (certificate + private key) | Build runs unsigned and is never published |
-| `CSC_KEY_PASSWORD` | The password you set when exporting that `.p12` | **The signing step fails mid-build** — see the warning below |
-| `APPLE_API_KEY` | Base64 of an App Store Connect API key `.p8` file | Build runs unsigned and is never published |
-| `APPLE_API_KEY_ID` | The 10-character Key ID of that key | Build runs unsigned and is never published |
-| `APPLE_API_ISSUER` | The Issuer ID (a UUID) of your App Store Connect team | Build runs unsigned and is never published |
-| `GH_TOKEN` | A GitHub token with `repo` scope, used by electron-builder to create the draft Release | **Publishing fails after a successful notarization** — see the warning below |
+| `CSC_LINK` | Base64 of your Developer ID Application `.p12` (certificate + private key) | One of the five |
+| `CSC_KEY_PASSWORD` | The password you set when exporting that `.p12` | One of the five |
+| `APPLE_API_KEY` | Base64 of an App Store Connect API key `.p8` file | One of the five |
+| `APPLE_API_KEY_ID` | The 10-character Key ID of that key | One of the five |
+| `APPLE_API_ISSUER` | The Issuer ID (a UUID) of your App Store Connect team | One of the five |
+| `GH_TOKEN` | A token for creating the draft Release under a specific account | **Optional** |
 
-> ### ⚠️ Two of these are not covered by the pre-flight check
->
-> The `Determine signing capability` step tests exactly four secrets —
-> `CSC_LINK`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` — and
-> decides from those alone whether to take the signed path.
->
-> `CSC_KEY_PASSWORD` and `GH_TOKEN` are **read but never checked**. If you set
-> the four and forget these two, the workflow does not fall back to the honest
-> unsigned path. It commits to the signed path and then fails:
->
-> - **Missing `CSC_KEY_PASSWORD`:** electron-builder cannot open the `.p12`, and
->   the build dies in the packaging step. Fast, loud, ~10 minutes in.
-> - **Missing `GH_TOKEN`:** everything works — including a full, slow
->   notarization round trip — and then `--publish always` has no credential to
->   create the Release with. You lose the whole run at the last step.
->
-> Set all six or none. "None" is a valid, supported state; "four" is not.
+**The five signing secrets are all-or-nothing.** The `Decide how this run
+packages` step checks every one of them, including `CSC_KEY_PASSWORD`; if any is
+missing the run downgrades cleanly to an unsigned, unpublished build and warns.
+Setting four of five does not get you a partly-signed release — it gets you an
+unsigned one, which is the correct and honest outcome. (`CSC_KEY_PASSWORD` is in
+that check specifically because a `.p12` without its password fails deep inside
+electron-builder with an opaque keychain error.)
+
+**`GH_TOKEN` is genuinely optional.** The publish step reads
+`${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}`, and the workflow's
+`permissions: contents: write` block is what makes that fallback real rather than
+decorative. Set `GH_TOKEN` only if you need the draft Release created under an
+account other than the workflow's own token.
 
 ### 2.1 `CSC_LINK` and `CSC_KEY_PASSWORD` — the Developer ID certificate
 
@@ -92,8 +93,8 @@ Creating one, on a Mac:
 2. **developer.apple.com → Certificates, IDs & Profiles → Certificates → +**.
    Choose **Developer ID Application**, upload the CSR, download the resulting
    `developerID_application.cer`.
-3. Double-click the `.cer` to install it. In Keychain Access it should now show
-   a disclosure triangle with a private key underneath. If it does not, you
+3. Double-click the `.cer` to install it. In Keychain Access it should now show a
+   disclosure triangle with a private key underneath. If it does not, you
    generated the CSR on a different machine and this certificate is unusable
    here — start again on the machine that holds the key.
 4. **Export to `.p12`:** select the certificate *and* its private key, right-click
@@ -107,25 +108,26 @@ Creating one, on a Mac:
    base64 -i DeveloperID.p12 | pbcopy   # now paste into the CSC_LINK secret
    ```
 
-   (GNU `base64` wraps at 76 columns. Wrapped input still decodes, but if you
-   are producing this on Linux, prefer `base64 -w0`.)
+   (GNU `base64` wraps at 76 columns. Wrapped input still decodes, but if you are
+   producing this on Linux, prefer `base64 -w0`.)
 
 6. Delete the `.p12` from disk when you are done. The secret store is the copy
    that matters.
 
 Certificates expire after five years, and Apple revokes them if the Developer
-Program membership lapses. A revoked or expired certificate does not fail the
-pre-flight check — `CSC_LINK` is still non-empty — it fails inside signing.
+Program membership lapses. A revoked or expired certificate does **not** downgrade
+the run to unsigned — `CSC_LINK` is still non-empty, so the pre-flight check
+passes and signing fails instead.
 
 ### 2.2 `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` — notarization
 
 **Notarization** is separate from signing. Signing proves *who* built the app;
 notarization is Apple scanning the signed artifact for malware and issuing a
-ticket that says it passed. Since macOS 10.15 an un-notarized download is
-refused by Gatekeeper even when it is correctly signed. `notarytool` (used by
-electron-builder under `notarize: true`) authenticates with an **App Store
-Connect API key** — a JWT-signing key, not a password, and the reason an
-app-specific password is no longer the recommended path.
+ticket that says it passed. Since macOS 10.15 an un-notarized download is refused
+by Gatekeeper even when it is correctly signed. `notarytool` (used by
+electron-builder under `notarize: true`) authenticates with an **App Store Connect
+API key** — a JWT-signing key, not a password, and the reason an app-specific
+password is no longer the recommended path.
 
 1. **appstoreconnect.apple.com → Users and Access → Integrations → App Store
    Connect API → Team Keys → +.** Name it something like `archspace-notarize`.
@@ -144,30 +146,18 @@ app-specific password is no longer the recommended path.
 
 The workflow's `Materialise the App Store Connect API key` step decodes that
 secret back into a file under `$RUNNER_TEMP`, because electron-builder passes
-`APPLE_API_KEY` to `notarytool` as a **path**, not as key material. Two details
-in that step are deliberate and worth not undoing:
+`APPLE_API_KEY` to `notarytool` as a **path**, not as key material. Two details in
+that step are deliberate and worth not undoing:
 
 - It writes to `$RUNNER_TEMP`, **outside the workspace**, so that no glob in
-  `electron-builder.yml`'s `files:` list can ever sweep a private key into the
-  app bundle.
-- It greps the first decoded line for `BEGIN PRIVATE KEY`. A mangled secret —
-  the usual cause being pasting the `.p8` text instead of its base64 — fails
-  there in seconds with an actionable error, rather than forty minutes later
-  inside `notarytool` with an opaque one.
+  `electron-builder.yml`'s `files:` list can ever sweep a private key into the app
+  bundle.
+- It greps the first decoded line for `BEGIN PRIVATE KEY`. A mangled secret — the
+  usual cause being pasting the `.p8` text instead of its base64 — fails there in
+  seconds with an actionable error, rather than forty minutes later inside
+  `notarytool` with an opaque one.
 
 A `Remove the API key` step runs with `if: always()`.
-
-### 2.3 `GH_TOKEN` — creating the draft Release
-
-electron-builder creates the GitHub Release itself (`--publish always` plus the
-`publish:` block in `electron-builder.yml`). It reads `GH_TOKEN` from the
-environment; it does not use the automatic `GITHUB_TOKEN` unless you wire it in.
-Generate a fine-grained or classic personal access token with write access to
-the target repository's contents.
-
-The workflow's `permissions: contents: write` block grants the *default* token
-the same right, so a maintainer can fall back to `GITHUB_TOKEN` by changing that
-one line — but as written, `GH_TOKEN` is what runs.
 
 ---
 
@@ -198,8 +188,8 @@ without it; nothing is present because a template had it.
 **The third one is an unverified precaution, and the plist says so.** No signed
 build has ever run, so nobody has established that plugin spawning and stdio MCP
 servers actually need it. Removing an entitlement after a green signed build is
-cheap; debugging a silently-dead plugin process on a notarized build is not, so
-it ships enabled. **On the first real signed run, try deleting it**: if the
+cheap; debugging a silently-dead plugin process on a notarized build is not, so it
+ships enabled. **On the first real signed run, try deleting it**: if the
 plugin-host crash-containment test and an stdio MCP server both still work in the
 packaged app, delete the key and its comment. Add-backs need a note saying what
 failed.
@@ -226,45 +216,52 @@ actually needs it.
 present, electron-builder logs `skipped macOS notarization` and continues, so a
 fork or laptop build degrades to unsigned instead of failing.
 
-For signing, electron-builder auto-discovers a Developer ID identity in your
-login keychain. To force an unsigned build (the normal case for a contributor):
+```sh
+pnpm dist    # builds the first-party plugin, then the app, then packages it
+```
+
+That is the root `dist` script; it runs the plugin build first because the
+plugin's `dist/index.js` is copied into the app's `extraResources`, and packaging
+before it exists produces an app with no plugin. `packages/app`'s own `dist`
+script passes `--publish never`.
+
+For signing, electron-builder auto-discovers a Developer ID identity in your login
+keychain. To force an unsigned build — the normal case for a contributor who
+happens to have a certificate installed:
 
 ```sh
-pnpm build                                     # plugin, then main/preload/renderer
-cd packages/app
-CSC_IDENTITY_AUTO_DISCOVERY=false pnpm exec electron-builder --mac --universal --publish never
+CSC_IDENTITY_AUTO_DISCOVERY=false pnpm dist
 ```
 
 Artifacts land in `packages/app/dist/` — `dist/`, not `release/`, because
 `.gitignore` already ignores `dist/` and packaging output must never be a
 candidate for `git add`.
 
-> **Note:** the root `package.json` advertises a `pnpm dist` script that runs
-> `pnpm --filter @archspace/app dist`, but `@archspace/app` defines no `dist`
-> script. `pnpm dist` currently fails with
-> `ERR_PNPM_RECURSIVE_RUN_NO_SCRIPT`. Use the two commands above until that is
-> fixed.
+**A local `pnpm dist` produces an app whose updater points at nothing**, because
+the `publish.owner`/`publish.repo` placeholders are still in
+`electron-builder.yml` (§8). CI refuses to publish in that state; a local build
+does not, so do not hand a locally-built DMG to anyone.
 
 ### What a user sees for an unsigned build
 
-This is the reason unsigned artifacts are never published, and it is worth
-knowing precisely:
+This is the reason unsigned artifacts are never published, and it is worth knowing
+precisely:
 
-- The DMG mounts and the app copies to `/Applications` normally. Nothing warns
-  you yet.
+- The DMG mounts and the app copies to `/Applications` normally. Nothing warns you
+  yet.
 - On first launch of a build downloaded from the internet (i.e. carrying the
   `com.apple.quarantine` attribute), macOS shows **"Archspace" cannot be opened
   because Apple cannot check it for malicious software** — with no "Open anyway"
-  button in the dialog. The user has to know to go to **System Settings →
-  Privacy & Security** and click *Open Anyway* under the message there, or
-  right-click → Open, or run `xattr -d com.apple.quarantine`.
+  button in the dialog. The user has to know to go to **System Settings → Privacy
+  & Security** and click *Open Anyway* under the message there, or right-click →
+  Open, or run `xattr -d com.apple.quarantine`.
 - `spctl -a -vvv -t install /Applications/Archspace.app` reports `rejected`.
 
 ADR-0012 rejected "unsigned, right-click to open" distribution outright: it is
 hostile to exactly the non-developer AEC users this product is for, and it trains
 people to bypass Gatekeeper. On a machine that built the app locally there is no
-quarantine attribute and none of this happens — which is precisely why an
-unsigned build feels fine to its author and is broken for everyone else.
+quarantine attribute and none of this happens — which is precisely why an unsigned
+build feels fine to its author and is broken for everyone else.
 
 The release workflow builds unsigned artifacts anyway on forks, so that the
 packaging path stays tested on every PR that touches it. It uploads them named
@@ -275,14 +272,21 @@ block in the job summary.
 
 ## 5. Cutting a release
 
-1. **Confirm CI is green on `main`.** The release workflow re-runs the same gate,
-   but finding out at tag time wastes a tag.
-2. **Bump the version.** `packages/app/package.json` is the one electron-builder
-   reads and the one that ends up in the artifact filename and in
-   `latest-mac.yml`. Every workspace package is currently pinned at `0.1.0` in
-   lockstep; keep them consistent unless and until packages are published
-   separately.
-3. **Commit, then tag.** The tag must match `v*` or the workflow will not fire:
+1. **Confirm CI is green on `main`.** The release workflow re-runs the same gate —
+   same steps, same order, same flags as `ci.yml` — but finding out at tag time
+   wastes a tag.
+2. **Confirm the update feed is configured.** `publish.owner` / `publish.repo` in
+   `electron-builder.yml` must not still say `REPLACE-ME-*`. A signed tag build
+   **hard-fails** while they do (§8).
+3. **Bump the version in `packages/app/package.json`.** electron-builder derives
+   the artifact filenames and the version inside `latest-mac.yml` from that file,
+   **not from the tag**. The workflow's first step fails the run if the tag and
+   that version disagree, because a mismatch produces a release that looks fine and
+   an update feed no installed app will ever accept. Every workspace package is
+   currently pinned at `0.1.0` in lockstep; keep them consistent unless and until
+   packages are published separately.
+4. **Commit, then tag.** The tag must match `v*` or the workflow will not fire, and
+   `v<X.Y.Z>` must equal the app's version exactly:
 
    ```sh
    git commit -am "Release v0.2.0"
@@ -290,16 +294,19 @@ block in the job summary.
    git push origin main --follow-tags
    ```
 
-4. **Watch the run.** Roughly: install and gate ~5 min, build ~2 min, packaging
-   and signing ~10 min, notarization anywhere from 2 to 30+ minutes (Apple's
-   queue, not ours). Timeout is 60 minutes.
-5. **Run the release gate** (below) against the draft's artifacts.
-6. **Publish the draft** on the GitHub Releases page, and write the release
-   notes there.
+5. **Watch the run.** Roughly: install and gate ~5 min, build ~2 min, packaging and
+   signing ~10 min, notarization anywhere from 2 to 30+ minutes (Apple's queue, not
+   ours). Timeout is 60 minutes.
+6. **Run the release gate** (§6) against the draft's artifacts.
+7. **Publish the draft** on the GitHub Releases page, and write the release notes
+   there.
 
-Releases are created as drafts deliberately. The gate is a human step, and a
-draft is the only reliable way to stop a download link existing before that step
-has happened.
+Releases are created as drafts deliberately. The gate is a human step, and a draft
+is the only reliable way to stop a download link existing before that step has
+happened.
+
+To rehearse all of this without a tag, run the workflow via **workflow_dispatch**.
+It builds, signs and notarizes exactly as a tag run would, and publishes nothing.
 
 ## 6. The release gate
 
@@ -307,38 +314,52 @@ Both checks are from ADR-0012. Neither is automatable today.
 
 1. **Gatekeeper on a machine that has never seen this app.** A clean VM or a
    colleague's Mac — not the machine that built it, which has no quarantine
-   attribute and will pass regardless. Download the DMG *through a browser*
-   (so it is quarantined), install, then:
+   attribute and will pass regardless. Download the DMG *through a browser* (so it
+   is quarantined), install, then:
 
    ```sh
    spctl -a -vvv -t install /Applications/Archspace.app
    ```
 
-   You want `accepted` and `source=Notarized Developer ID`. Anything else stops
-   the release.
+   You want `accepted` and `source=Notarized Developer ID`. Anything else stops the
+   release.
 
 2. **Update n−1 → n.** Install the previous release, launch it, and confirm it
-   updates itself to this one. **This check cannot pass today** — see below.
+   updates itself to this one. **This check cannot pass today** — see §7.
 
-Also check before publishing: the release contains both a `.dmg` and a `.zip`
-(the ZIP feeds the updater; the updater cannot consume a DMG), plus
-`latest-mac.yml` and the `.blockmap` files; and the version in the artifact
-filenames is the one you meant to ship.
+Also check before publishing: the release contains both a `.dmg` and a `.zip` (the
+ZIP feeds the updater; the updater cannot consume a DMG), plus `latest-mac.yml` and
+the `.blockmap` files; and the version in the artifact filenames is the one you
+meant to ship.
+
+### What CI already checks so you do not have to
+
+The `Verify the packaged layout matches what main resolves at runtime` step opens
+the built `Archspace.app` and asserts that every example workflow is at
+`Contents/Resources/resources/` and that the first-party plugin is at
+`Contents/Resources/plugins/aec-review/dist/index.js`.
+
+This exists because the bug it catches has no unit test and no dev-mode symptom.
+`files:` in `electron-builder.yml` puts things **inside** `app.asar`;
+`extraResources:` puts them **beside** it. Main resolves both the bundled examples
+and the plugin from `process.resourcesPath`, so getting that wrong leaves
+`pnpm dev` perfect while the shipped `.dmg` opens to an empty canvas. The check
+derives the example list from the source directory rather than restating it, so
+adding a workflow cannot silently skip it.
 
 ---
 
 ## 7. Auto-update: what actually exists
 
-**Auto-update is not wired.** Stating this plainly because the configuration
-looks like it is:
+**Auto-update is not wired.** Stating this plainly because the configuration looks
+like it is:
 
 - `electron-updater` **is** a declared dependency of `@archspace/app`.
-- It is **never imported**. There is no `autoUpdater` reference anywhere in
-  `packages/app/src/` or in any other package — the string appears only in
-  `package.json` and in comments.
-- The `publish:` block in `electron-builder.yml` **is** present and real. It
-  makes electron-builder emit `latest-mac.yml` and bake an `app-update.yml` into
-  the bundle, which is everything the *feed* side needs.
+- It is **never imported**. There is no `autoUpdater` reference anywhere in any
+  package's `src/` — the string appears only in `package.json` and in comments.
+- The `publish:` block in `electron-builder.yml` **is** present and real. It makes
+  electron-builder emit `latest-mac.yml` and bake an `app-update.yml` into the
+  bundle, which is everything the *feed* side needs.
 
 So a release produces a well-formed update feed that nothing consumes. A shipped
 Archspace will not notice that a newer version exists, and the release gate's
@@ -347,52 +368,35 @@ release notes.
 
 Auto-update is scoped to **M8** in [ARCHITECTURE.md §16](ARCHITECTURE.md),
 alongside the Homebrew cask (also not present in this repository). Wiring it is
-main-process work in `packages/app` — `packages/app` is the only package allowed
-to import Electron or Electron-adjacent modules, so `electron-updater` belongs
-there and nowhere else.
+main-process work in `packages/app` — `packages/app` is the only package allowed to
+import Electron or Electron-adjacent modules, so `electron-updater` belongs there
+and nowhere else.
 
 ---
 
-## 8. Known gaps before the first release
+## 8. Before the first release
 
-Found by auditing the configuration against the repository as it stands. All
-four will affect the first person who tries to cut a release.
+**`publish.owner` and `publish.repo` are placeholders and must be replaced.**
+`electron-builder.yml` currently says `REPLACE-ME-github-owner` /
+`REPLACE-ME-github-repo`. This working tree has no git remote, so the canonical
+GitHub location was never confirmed. The values are deliberately not
+plausible-looking: electron-builder bakes them into the app's `app-update.yml`, and
+a plausible-but-wrong value would ship an update feed that 404s forever while
+looking correct in review.
 
-1. **`publish.owner` / `publish.repo` are placeholders.** `electron-builder.yml`
-   says `archspace/archspace`, and its own comment flags this: the canonical
-   GitHub location was never confirmed, and this working tree has no git remote
-   configured. electron-updater bakes these into `app-update.yml`, so a wrong
-   value ships a broken update feed to every installed copy. **Fix these before
-   the first tagged release**, not after.
+This is guarded, not merely documented. The `Decide how this run packages` step
+greps the config for the `REPLACE-ME` token and:
 
-2. **The release workflow's headless CLI step is missing `--trust-plugin` and
-   will fail.** `release.yml` runs:
+- **hard-fails** a signed tag build while the placeholder is present, because a
+  published release that can never receive an update is worse than no release;
+- **warns** on any other run, and adds a note to the job summary saying auto-update
+  in that artifact points at nothing.
 
-   ```
-   pnpm cli run packages/app/resources/concept-compliance.archspace.yaml
-   ```
+A local `pnpm dist` has no such guard.
 
-   while `ci.yml` runs the same command with `--trust-plugin aec-review`. That
-   workflow uses `aec.review.code_compliance`, which lives in the first-party
-   plugin, and ADR-0008 makes an unconsented plugin unloadable. Reproduced
-   locally — the step exits 1 with:
-
-   ```
-   [error] unknown-type: node "n_r9t3kv" has unknown type "aec.review.code_compliance"
-   Validation failed — not running.
-   plugin "aec-review" is needs-consent: this plugin has not been reviewed yet
-   ```
-
-   The step sits **before** packaging, so every tagged release fails there. The
-   `--trust-plugin` flag was added after `release.yml` was written and the
-   release workflow was not updated with `ci.yml`.
-
-3. **`pnpm dist` is broken.** The root script delegates to a `dist` script that
-   `@archspace/app` does not define. See §4 for what to run instead.
-
-4. **No app icon.** `build/` intentionally contains no `icon.icns`;
-   electron-builder falls back to the default Electron icon with a warning. This
-   is a known, accepted state — a fake icon would be worse than an obviously
-   missing one — but the first alpha will ship looking like a generic Electron
-   app. Do not "fix" it by adding `mac.icon:` pointing at a path that does not
-   exist; a missing icon file *is* a hard error, unlike a missing icon.
+**There is no app icon.** `build/` intentionally contains no `icon.icns`;
+electron-builder falls back to the default Electron icon with a warning. This is a
+known, accepted state — a fake icon would be worse than an obviously missing one —
+but the first alpha will ship looking like a generic Electron app. Do not "fix" it
+by adding `mac.icon:` pointing at a path that does not exist; a missing icon *file*
+is a hard error, unlike a missing icon.

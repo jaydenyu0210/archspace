@@ -321,7 +321,7 @@ servers:
     url: <replace me>
     auth: oauth
     enabled: false
-    description: Windows machine running Revit plus an MCP bridge
+    description: Windows machine running Revit plus an MCP bridge (see docs/autodesk-revit.md)
     timeoutMs: 60000
     concurrency: 1
 ```
