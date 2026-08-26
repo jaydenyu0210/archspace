@@ -1,3 +1,19 @@
+/**
+ * Text → `WorkflowDoc`, and the CST that produced it (ARCHITECTURE §4 /
+ * ADR-0004).
+ *
+ * `parseWorkflow` hands back a `WorkflowSource` alongside the document, and
+ * that pairing is the reason this package is not a call to `YAML.parse`.
+ * ADR-0004 decision 4 requires that saving preserve the comments, key order
+ * and quoting a human wrote, and only the original CST knows them — so the
+ * parse keeps it and `saveWorkflow` patches it. Parsing to a plain object and
+ * re-emitting was the alternative: it is a fraction of the code and it deletes
+ * every comment in the user's file the first time they press save.
+ *
+ * Loading is resilient (§4): a parser error is fatal, everything else is a
+ * warning that still yields a usable document. `extractWorkflow` owns that
+ * split — see its comment for the exact list, which is normative.
+ */
 import { isMap, isSeq, parseDocument, type Document } from 'yaml';
 import type { DocIssue, ParseWorkflowResult } from './types.js';
 import { extractWorkflow } from './extract.js';

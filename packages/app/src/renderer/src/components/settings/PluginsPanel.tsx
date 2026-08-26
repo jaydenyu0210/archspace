@@ -1,10 +1,3 @@
-import { useCallback, useEffect, useState } from 'react';
-import { useStore } from '../../store';
-import { reloadPlugins, requestEngineStatus, setPluginEnabled } from '../../engine-client';
-import type { SettingsPanelProps } from '../Settings';
-import type { InstalledPluginInfo } from '@archspace/plugin-host';
-import type { PluginConsentState } from '../../../../shared/protocol';
-
 /**
  * Plugins panel — the consent surface for the boundary in ARCHITECTURE §8 /
  * ADR-0008.
@@ -46,6 +39,14 @@ import type { PluginConsentState } from '../../../../shared/protocol';
  * restart but cannot carry a *first* grant — for that, `setPluginConsent` and
  * the config push it triggers are the whole mechanism.
  */
+
+import { useCallback, useEffect, useState } from 'react';
+import { useStore } from '../../store';
+import { reloadPlugins, requestEngineStatus, setPluginEnabled } from '../../engine-client';
+import type { SettingsPanelProps } from '../Settings';
+import type { InstalledPluginInfo } from '@archspace/plugin-host';
+import type { PluginConsentState } from '../../../../shared/protocol';
+
 
 // ---------------------------------------------------------------------------
 // Permission copy

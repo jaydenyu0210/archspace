@@ -1,17 +1,3 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  resolveCapability,
-  type AutodeskCapability,
-  type CapabilityChannel,
-  type CapabilityEvidence,
-  type CapabilityStatus,
-  type McpServerPreset,
-} from '@archspace/autodesk';
-import type { McpServerConfig } from '@archspace/mcp-host';
-import { requestEngineStatus } from '../../engine-client';
-import { useStore } from '../../store';
-import type { SettingsPanelProps } from '../Settings';
-
 /**
  * Autodesk & Revit — the capability matrix on screen (ARCHITECTURE §9.2 /
  * ADR-0001, rendered from `@archspace/autodesk`, sourced from
@@ -54,6 +40,21 @@ import type { SettingsPanelProps } from '../Settings';
  * every field of `McpServerConfig` precisely so that it cannot silently drop
  * one and show the user a snippet that is not the preset.
  */
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  resolveCapability,
+  type AutodeskCapability,
+  type CapabilityChannel,
+  type CapabilityEvidence,
+  type CapabilityStatus,
+  type McpServerPreset,
+} from '@archspace/autodesk';
+import type { McpServerConfig } from '@archspace/mcp-host';
+import { requestEngineStatus } from '../../engine-client';
+import { useStore } from '../../store';
+import type { SettingsPanelProps } from '../Settings';
+
 
 /** Defined in packages/autodesk/src/presets.ts, and quoted here rather than
  *  imported because it is not exported: "Visible on purpose: a half-filled

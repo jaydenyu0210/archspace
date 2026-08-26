@@ -1,3 +1,19 @@
+/**
+ * The run log and output previews — the engine's event stream, rendered
+ * (ARCHITECTURE §7).
+ *
+ * `eventLine` returns `null` for the events worth suppressing, rather than the
+ * panel filtering the stream upstream: one place decides what a run *reads*
+ * like. Note its `default: return null` — a run event added to the engine is
+ * silently invisible here until someone gives it a line, which is a real trap
+ * and the first place to look when a new event "does not show up".
+ *
+ * Timestamps are relative to the run's start (`+1.21s`), not wall clock. A run
+ * is read to answer "what took the time", and absolute times make the reader
+ * do the subtraction. Previews are bounded and say when they were truncated,
+ * because the wire-value invariant (§8.1) means large output is an `AssetRef`
+ * and the panel must never look like it is showing the whole of something.
+ */
 import { useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import type { RunEvent, OutputPreview } from '@archspace/engine';

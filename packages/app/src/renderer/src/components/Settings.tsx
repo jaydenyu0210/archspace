@@ -1,18 +1,3 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
-} from 'react';
-import { useStore, type SettingsTab } from '../store';
-import { McpPanel } from './settings/McpPanel';
-import { AiPanel } from './settings/AiPanel';
-import { PluginsPanel } from './settings/PluginsPanel';
-import { AutodeskPanel } from './settings/AutodeskPanel';
-import type { PlatformInfo } from '../../../shared/protocol';
-
 /**
  * The settings dialog: one modal over the drafting table, four tabs
  * (ARCHITECTURE §9.1 MCP bindings, §10 model profiles, §8 plugins, and the
@@ -36,6 +21,22 @@ import type { PlatformInfo } from '../../../shared/protocol';
  * body renders means a panel never has to render a "loading…" state for the
  * paths it is built around.
  */
+
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
+import { useStore, type SettingsTab } from '../store';
+import { McpPanel } from './settings/McpPanel';
+import { AiPanel } from './settings/AiPanel';
+import { PluginsPanel } from './settings/PluginsPanel';
+import { AutodeskPanel } from './settings/AutodeskPanel';
+import type { PlatformInfo } from '../../../shared/protocol';
+
 
 /** What every settings panel is handed. Panels take exactly this, no more. */
 export interface SettingsPanelProps {

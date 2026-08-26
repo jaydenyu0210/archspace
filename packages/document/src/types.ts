@@ -1,3 +1,17 @@
+/**
+ * The workflow document's in-memory shapes (ARCHITECTURE §4.2 / ADR-0004).
+ *
+ * Data only, and deliberately so: parse, extract, emit and save all speak
+ * these types, so any logic living here would be imported by every one of them
+ * and would create exactly the cycle that splitting `edge`, `requires` and
+ * `yaml-util` out avoids.
+ *
+ * Note what `ParseWorkflowResult` carries beside the doc: a `WorkflowSource`.
+ * `WorkflowDoc` is the value the app edits; the CST it was read from is what a
+ * save patches (ADR-0004 decision 4). The two stay separate objects rather
+ * than merging into one, because only one of them is safe to hand to a
+ * reducer, and the other must not be mutated except by `saveWorkflow`.
+ */
 import type { WorkflowSource } from './source.js';
 
 /** One endpoint of an edge: a node id plus a port name on that node. */

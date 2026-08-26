@@ -1,3 +1,17 @@
+/**
+ * The header strip: document identity, history, file actions, and Run.
+ *
+ * Every button here mirrors a native menu item rather than replacing one —
+ * the menu is the accessible, discoverable surface (and the only one with
+ * accelerators), so this is a shortcut for the mouse, not a second
+ * implementation. That is why the file actions arrive as props from `App`:
+ * both paths end in the same `doSave`/`doOpen`/`doNew`, so a toolbar click and
+ * a ⌘S can never diverge.
+ *
+ * Run is the exception that swaps rather than disables: while a run is in
+ * flight the button becomes Cancel, because a disabled Run would leave a user
+ * with a running workflow and no visible way to stop it.
+ */
 import { useStore } from '../store';
 import { cancelWorkflowRun, startWorkflowRun } from '../engine-client';
 

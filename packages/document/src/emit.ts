@@ -1,3 +1,18 @@
+/**
+ * Canonical text for a NEW workflow file (ARCHITECTURE §4.2 / ADR-0004).
+ *
+ * The write path with no history to respect: nothing exists on disk, so every
+ * byte is ours to choose, and the choice is fixed key order, `requires`
+ * derived from the nodes, and integer-rounded layout — two people generating
+ * from the same document get identical bytes.
+ *
+ * This is emphatically NOT the path for saving a file that already exists.
+ * That is `save.ts`, which patches the CST, because re-emitting a file a human
+ * has edited would silently discard their comments (ADR-0004 decision 4). The
+ * two modules share `assertValidDoc` and `canonicalNodeShape` so a patched
+ * file and a freshly emitted one cannot disagree about the shape of a node
+ * entry — the one place the two paths could drift apart unnoticed.
+ */
 import { Document, Scalar, isMap, isSeq } from 'yaml';
 import type { DocNode, WorkflowDoc } from './types.js';
 import { deriveRequires, type DeriveRequiresOptions } from './requires.js';

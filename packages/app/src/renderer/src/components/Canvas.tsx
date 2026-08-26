@@ -1,3 +1,18 @@
+/**
+ * The graph surface: React Flow wired to the store (ADR-0003).
+ *
+ * This component owns interaction, not truth. Nodes, edges, connection rules
+ * and deletion policy all live in the store, so the canvas passes handlers
+ * straight through — which is what lets the same graph be manipulated by the
+ * menu, the keyboard and a drop from the palette without three code paths.
+ *
+ * `onBeforeDelete` is wired only to push an undo checkpoint: React Flow is
+ * about to mutate the graph, and the snapshot has to be taken before it does,
+ * not after. It is a hook rather than a guard — it never refuses a deletion.
+ * The `fitView` on `filePath` change is the one piece of genuinely view-only
+ * state here: a newly opened document should be framed, and nothing else knows
+ * when that happened.
+ */
 import { useCallback, useEffect, useMemo } from 'react';
 import {
   Background,

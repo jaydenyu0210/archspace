@@ -1,21 +1,3 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  PROVIDERS,
-  providerById,
-  validateAiConfig,
-  type AiGatewayConfig,
-  type ConfigIssue,
-  type ModelProfile,
-  type ProfileProbeResult,
-  type ProfileStatus,
-  type ProviderDescriptor,
-  type ProviderId,
-} from '@archspace/ai-gateway';
-import { useStore } from '../../store';
-import { probeAiProfile, requestEngineStatus } from '../../engine-client';
-import type { SecretKeyInfo } from '../../../../shared/protocol';
-import type { SettingsPanelProps } from '../Settings';
-
 /**
  * AI model profiles — this machine's half of the portability contract
  * (ARCHITECTURE §10 / ADR-0010).
@@ -63,6 +45,25 @@ import type { SettingsPanelProps } from '../Settings';
  * rewrite. Errors block; warnings are shown and kept, matching config.ts's rule
  * that a broken profile is reported, not dropped.
  */
+
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  PROVIDERS,
+  providerById,
+  validateAiConfig,
+  type AiGatewayConfig,
+  type ConfigIssue,
+  type ModelProfile,
+  type ProfileProbeResult,
+  type ProfileStatus,
+  type ProviderDescriptor,
+  type ProviderId,
+} from '@archspace/ai-gateway';
+import { useStore } from '../../store';
+import { probeAiProfile, requestEngineStatus } from '../../engine-client';
+import type { SecretKeyInfo } from '../../../../shared/protocol';
+import type { SettingsPanelProps } from '../Settings';
+
 
 // ---------------------------------------------------------------------------
 // Vocabulary: what a state means, in words a user can act on

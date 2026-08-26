@@ -1,20 +1,3 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import type {
-  McpBinding,
-  McpConfig,
-  McpServerConfig,
-  McpServerStatus,
-  McpTransportKind,
-} from '@archspace/mcp-host';
-import type { SettingsPanelProps } from '../Settings';
-import { useStore } from '../../store';
-import {
-  connectMcpServer,
-  disconnectMcpServer,
-  refreshMcpServer,
-  requestEngineStatus,
-} from '../../engine-client';
-
 /**
  * MCP Servers panel — the "server configuration UI" of ARCHITECTURE §9.1–§9.3 /
  * ADR-0009.
@@ -50,6 +33,24 @@ import {
  * stdio transport — into a sandboxed renderer that has no Node at all
  * (ARCHITECTURE §3.2). Types are free; values are not.
  */
+
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import type {
+  McpBinding,
+  McpConfig,
+  McpServerConfig,
+  McpServerStatus,
+  McpTransportKind,
+} from '@archspace/mcp-host';
+import type { SettingsPanelProps } from '../Settings';
+import { useStore } from '../../store';
+import {
+  connectMcpServer,
+  disconnectMcpServer,
+  refreshMcpServer,
+  requestEngineStatus,
+} from '../../engine-client';
+
 
 /** Mirrors `isValidServerName` — the identifier a workflow document writes. */
 const SERVER_NAME = /^[a-z][a-z0-9_]*$/;

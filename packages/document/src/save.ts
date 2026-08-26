@@ -1,3 +1,18 @@
+/**
+ * Saving an existing workflow file, byte-identical wherever nothing changed
+ * (ARCHITECTURE §4.2 / ADR-0004 decision 4 — the hard requirement).
+ *
+ * This module never serializes a document. It walks the CST that
+ * `parseWorkflow` kept and applies only the differences, which is why it is
+ * three times the size of `emit.ts` for the same output format. That size is
+ * the feature: re-emitting would be a fraction of the code and would throw
+ * away the comments, blank lines and quoting style the user wrote.
+ *
+ * The `*_ORDER` constants below say where a key goes when it is *inserted*.
+ * They never reorder keys that are already present — `insertIndexFor` only
+ * ever computes a position for something new. A save that tidied a human's key
+ * order would be the same broken promise in a politer form.
+ */
 import { Pair, Scalar, YAMLMap, YAMLSeq, isMap, isSeq, type Document } from 'yaml';
 import type { WorkflowDoc, WorkflowRequires } from './types.js';
 import type { WorkflowSource } from './source.js';

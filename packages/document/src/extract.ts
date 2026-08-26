@@ -1,3 +1,14 @@
+/**
+ * Parsed YAML → `WorkflowDoc`, and the single place that decides what is fatal
+ * (ARCHITECTURE §4 / ADR-0004).
+ *
+ * This is separate from `parse.ts` because `saveWorkflow` needs it too: a save
+ * re-extracts the document it is about to patch and diffs the caller's doc
+ * against *that*, so whatever this function decides a file means is exactly
+ * what a save compares against. One reading used by both paths is what makes a
+ * no-op save byte-identical rather than merely close — two subtly different
+ * readings would show up as spurious edits in a user's diff.
+ */
 import { isMap, isSeq, type Document } from 'yaml';
 import type { DocEdge, DocIssue, DocNode, WorkflowDoc } from './types.js';
 import { parseEdge } from './edge.js';

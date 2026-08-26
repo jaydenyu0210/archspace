@@ -1,3 +1,28 @@
+/**
+ * The renderer root: layout, the document lifecycle, and the two input
+ * surfaces that are not React's (ARCHITECTURE §3.2).
+ *
+ * `doSave` / `doOpen` / `doNew` live here rather than in `Toolbar` because the
+ * native menu and the toolbar must reach the same implementation — a ⌘S and a
+ * click on Save cannot be allowed to diverge — and only a common parent can
+ * hand both the same function.
+ *
+ * The menu switch ends in `const unhandled: never = action`, which is
+ * load-bearing rather than decorative. Four settings actions were once sent by
+ * main and dropped here in silence because the switch had no case and no
+ * default, so the menu items simply did nothing. That is now a compile error,
+ * and if one ever escapes the type system the user is told rather than left
+ * clicking a dead control.
+ *
+ * Copy and paste are handled by hand because the graph is not text: the menu's
+ * built-in roles serve text fields correctly and cannot know about selected
+ * nodes. `isEditingText` and the `settingsOpen` check are what keep the two
+ * meanings apart — inside a form field, or with the settings dialog owning the
+ * screen, ⌘C must copy characters and not the canvas behind it.
+ *
+ * `Settings` is mounted only while open so that focus capture, focus restore
+ * and each panel's fetches happen per opening rather than once per launch.
+ */
 import { useCallback, useEffect, useRef } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { NodeLibrary } from './components/NodeLibrary';

@@ -1,3 +1,17 @@
+/**
+ * The properties panel: the selected node's params, or the document's own.
+ *
+ * The form is generated from `manifest.params`, a JSON Schema subset, and
+ * never hand-written per node type (ARCHITECTURE §5.2). That is the whole
+ * reason a plugin author gets a working editor for free — `ParamField` reads
+ * the schema, so a node type this app has never heard of still renders.
+ *
+ * The unknown-node branch is the important one. A node whose type is not
+ * installed still shows its id and type and says plainly that its config is
+ * preserved and will save intact — because the document format keeps unknown
+ * entries verbatim (ADR-0004), and a user opening a colleague's workflow needs
+ * to know that missing a plugin has not silently eaten their data.
+ */
 import { useStore } from '../store';
 import { ParamField } from './ParamField';
 
