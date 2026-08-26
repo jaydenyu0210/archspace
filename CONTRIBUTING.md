@@ -157,6 +157,46 @@ Consequences worth internalising:
 
 ---
 
+## 3a. Launch the app before you claim it works
+
+Two launch-blocking bugs once shipped past a completely green CI at the same
+time: the main bundle left workspace packages external and Electron died with
+`ERR_MODULE_NOT_FOUND` before opening a window, and behind that an unstable
+zustand selector made React give up with error #185 and mount nothing at all.
+
+Neither is exotic, and nothing caught either. `tsc` reads source and never
+looks at the bundle. The unit tests never construct a window. The headless CLI
+runs through `tsx`, a loader with none of Electron's constraints. **The five CI
+commands do not launch Electron**, so a product that could not start scored a
+perfect run.
+
+Two things close part of that gap, and both run in seconds:
+
+```bash
+pnpm --filter @archspace/app build   # includes scripts/check-bundle.mjs
+pnpm --filter @archspace/app smoke   # launches the app, asserts the UI rendered
+```
+
+`check-bundle.mjs` fails the build if an `@archspace/*` specifier survives into
+`out/main` or `out/preload` — that is the first bug, caught statically.
+`smoke-ui.mjs` starts the built app with the DevTools Protocol open and asks
+the live DOM whether the shell is there; the node-type count it asserts is only
+non-zero if main spawned the engine child and the two agreed over a
+MessagePort, so one number covers that whole chain.
+
+`smoke` is not in CI, deliberately: it needs a window server, and whether a
+GitHub runner reliably provides one has not been verified here. A flaky gate
+teaches people to re-run rather than to read. Run it by hand after touching
+main, preload, the store, or the build config.
+
+**A note on zustand selectors**, since one cost an entire working UI: a
+selector must return something reference-stable. `useStore((s) => s.nodes)` is
+fine; `useStore((s) => s.nodes.filter(...))` builds a fresh array every call,
+so `useSyncExternalStore` sees a changed snapshot forever. Select, then derive
+in the component body.
+
+---
+
 ## 4. The hard rules
 
 These are enforced by [`eslint.config.js`](eslint.config.js) and the tsconfigs,
