@@ -132,21 +132,19 @@ dmg:
 # as drafts so a human runs the release gate — `spctl -a` on a clean machine and
 # an n-1 -> n update check — before anyone can download the artifact.
 #
-# owner/repo BELOW ARE NOT REAL AND ARE NOT MEANT TO LOOK REAL. This working
-# tree has no git remote, so the canonical GitHub location is unconfirmed, and
-# electron-builder bakes whatever is here into the app's app-update.yml: a
-# plausible-but-wrong value would ship an update feed that 404s forever while
-# looking correct in review. An obviously-broken value cannot be mistaken for a
-# working one.
+# owner/repo are the real coordinates of this repository. electron-builder
+# bakes them into the app's app-update.yml, so a plausible-but-wrong value here
+# would ship an update feed that 404s forever while looking correct in review —
+# which is why these carried a deliberately-broken REPLACE-ME token for as long
+# as the canonical location was genuinely unknown. The repository now exists and
+# `src/main/updates.ts` reads this feed, so both halves are real.
 #
-# Replace both with the real coordinates before the first tagged release.
-# .github/workflows/release.yml refuses to publish a signed tag build while the
-# REPLACE-ME token is still here, so this cannot ship by accident — but a local
-# `pnpm dist` will happily produce an app whose updater points at nothing, which
-# is the honest state of auto-update in this build (see the note in the release
-# workflow: nothing in src/ calls electron-updater yet either).
+# The repository is PRIVATE at the time of writing. An update feed can only be
+# read anonymously from a public repository, so auto-update will not reach
+# anyone until this repo is made public (or the feed is pointed at one that is).
+# That is a property of where the releases live, not of the configuration below.
 publish:
   - provider: github
-    owner: REPLACE-ME-github-owner
-    repo: REPLACE-ME-github-repo
+    owner: jaydenyu0210
+    repo: archspace
     releaseType: draft

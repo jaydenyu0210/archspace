@@ -376,21 +376,36 @@ and nowhere else.
 
 ## 8. Before the first release
 
-**`publish.owner` and `publish.repo` are placeholders and must be replaced.**
-`electron-builder.yml` currently says `REPLACE-ME-github-owner` /
-`REPLACE-ME-github-repo`. This working tree has no git remote, so the canonical
-GitHub location was never confirmed. The values are deliberately not
-plausible-looking: electron-builder bakes them into the app's `app-update.yml`, and
-a plausible-but-wrong value would ship an update feed that 404s forever while
-looking correct in review.
+**The update feed now points somewhere real, but at a private repository.**
+`electron-builder.yml` names `jaydenyu0210/archspace`, and
+`packages/app/src/main/updates.ts` reads that feed — both halves that were
+missing are now present. But an update feed can only be read anonymously from a
+**public** repository, so auto-update will not reach anyone while this repo is
+private. Make it public, or point `publish` at a public mirror, before promising
+users updates.
 
-This is guarded, not merely documented. The `Decide how this run packages` step
-greps the config for the `REPLACE-ME` token and:
+The `REPLACE-ME` guard in the `Decide how this run packages` step is retained
+even though the token is gone. It still **hard-fails** a signed tag build if a
+placeholder ever reappears, and **warns** on any other run. It costs nothing and
+it is the check that stops a release which can never receive an update.
 
-- **hard-fails** a signed tag build while the placeholder is present, because a
-  published release that can never receive an update is worse than no release;
-- **warns** on any other run, and adds a note to the job summary saying auto-update
-  in that artifact points at nothing.
+**Verify `electron-updater` actually made it into the app.** This workspace
+installs with pnpm, whose `node_modules` is a tree of symlinks, and
+electron-builder is known to under-collect production dependencies from that
+layout. `electron-updater` is external in the main bundle (electron-vite leaves
+it as a runtime `import`), so a miss here means no auto-update. It will not
+crash the app — `updates.ts` imports it dynamically inside a try/catch for
+exactly this reason — but it will fail silently apart from one log line. After
+`pnpm dist`, check:
+
+```
+ls "packages/app/dist/mac-universal/Archspace.app/Contents/Resources/app.asar.unpacked/node_modules/electron-updater" \
+  || npx asar list packages/app/dist/mac-universal/Archspace.app/Contents/Resources/app.asar | grep electron-updater
+```
+
+If it is absent, add a root `.npmrc` with `node-linker=hoisted` and reinstall.
+That changes the layout the whole workspace installs into, so re-run the full
+CI gate afterwards rather than assuming it is inert.
 
 A local `pnpm dist` has no such guard.
 

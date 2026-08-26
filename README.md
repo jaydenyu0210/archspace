@@ -343,7 +343,8 @@ documents, which is a seam masquerading as a feature.
 | The plugin boundary those seven nodes ride on | **Real** — a genuine separate OS process, install-time consent, capability RPC, crash containment |
 | Autodesk / Revit / APS | **Not implemented** — see above |
 | 3D / IFC preview (three.js + web-ifc, [ADR-0003](docs/adr/0003-frontend-and-canvas.md)) | **Not built.** Designed, dependencies not even installed |
-| Signed release, auto-update, Homebrew cask | **Not published yet.** The workflow exists; no tag has run it |
+| Signed release, Homebrew cask | **Not published yet.** The workflow exists; no tag has run it |
+| Auto-update | **Wired, unproven.** Reads the GitHub Releases feed on launch; no release has ever exercised it, and a private repo's feed is not anonymously readable |
 | Windows / Linux packaging | **Deferred by decision** (ADR-0001); no package imports platform code |
 
 The mock nodes' output shapes are the contract, not a sketch:
@@ -366,8 +367,10 @@ inspector display.
   test files at all** — so a new package without a suite reds the whole
   command with nothing actually failing an assertion.
 - No application icon.
-- No 3D/IFC preview, no published release, and no auto-update wiring — see the
-  status table above.
+- No 3D/IFC preview and no published release — see the status table above.
+  Auto-update is now wired (`packages/app/src/main/updates.ts`) but has never
+  run against a real release, and cannot reach anyone while this repository is
+  private: an update feed is only readable anonymously from a public repo.
 
 ---
 

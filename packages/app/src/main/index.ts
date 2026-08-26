@@ -37,6 +37,7 @@ import type {
 import { openDefault, openPath, openWithDialog, save, setPluginNamespaces } from './documents';
 import { authorize, cancelAuthorization } from './oauth';
 import { installPluginWithConsent, uninstallPlugin } from './plugins';
+import { initAutoUpdate } from './updates';
 import {
   aiConfigPath,
   getSecret,
@@ -426,6 +427,9 @@ app.whenReady().then(() => {
   buildMenu();
   spawnEngine();
   createWindow();
+  // After the window, on purpose: the first thing this app does with the
+  // user's network should be showing them their workflow, not polling a feed.
+  initAutoUpdate();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
