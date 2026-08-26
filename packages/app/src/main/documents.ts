@@ -18,6 +18,11 @@ import type { OpenResult, SaveResult } from '../shared/protocol';
 
 const sources = new Map<string, WorkflowSource>();
 
+/** Error text for a thrown unknown, which is all `catch` can promise us. */
+function reason(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 /**
  * Namespace → plugin name for everything currently installed, kept up to date
  * from the engine's plugin-status pushes.
@@ -38,6 +43,12 @@ export function setPluginNamespaces(map: Record<string, string>): void {
 /**
  * The workflows shipped with the app. All of them are copied into the user's
  * workflow directory on first launch; the first is the one that opens.
+ *
+ * These names are the contract with packaging: `packages/app/electron-builder.yml`
+ * ships `packages/app/resources/*.archspace.yaml` as extraResources, and
+ * `resourcesDir()` in ./index.ts hands us `process.resourcesPath/resources` in a
+ * packaged app. Adding a name here without adding the file is a first-launch
+ * failure that only reproduces in a packaged build.
  */
 const EXAMPLES = [
   'concept-compliance.archspace.yaml',
@@ -55,7 +66,7 @@ export async function openPath(path: string): Promise<OpenResult> {
   try {
     text = await readFile(path, 'utf8');
   } catch (err) {
-    return { ok: false, error: `Could not read ${path}: ${err instanceof Error ? err.message : String(err)}` };
+    return { ok: false, error: `Could not read ${path}: ${reason(err)}` };
   }
   const parsed = parseWorkflow(text);
   if (!parsed.ok) {
@@ -84,16 +95,52 @@ export async function openWithDialog(win: BrowserWindow): Promise<OpenResult> {
  * First launch ships the example workflows: the bundled resources are copied
  * into userData once, then opened like any user file, so edits and saves stick.
  * Existing copies are never overwritten — the user's edits win.
+ *
+ * Every failure here returns an `OpenResult` rather than throwing, and that is
+ * the whole point of the function's shape. This is the one path whose inputs
+ * come from the *packaging* config rather than from the user, so its
+ * characteristic bug is a path that is correct in `pnpm dev` and wrong in the
+ * .app — `resourcesDir` pointing at a directory that does not exist inside the
+ * bundle. A throw would reject the `workflow:open-default` IPC call, and the
+ * renderer's boot effect has no rejection handler: the user would get a blank
+ * canvas with no explanation, which is the worst possible report of a build
+ * error. Returning `{ ok: false, error }` puts a sentence naming the missing
+ * file on screen instead (App.tsx surfaces it as a notification), and the
+ * release workflow greps the built .app for these same files so CI fails before
+ * a user ever sees the message.
  */
 export async function openDefault(resourcesDir: string): Promise<OpenResult> {
   const dir = workflowsDir();
-  await mkdir(dir, { recursive: true });
+  try {
+    await mkdir(dir, { recursive: true });
+  } catch (err) {
+    return { ok: false, error: `Could not create the workflows folder ${dir}: ${reason(err)}` };
+  }
+
   for (const name of EXAMPLES) {
     const target = join(dir, name);
-    if (!existsSync(target)) {
-      await copyFile(join(resourcesDir, name), target);
+    if (existsSync(target)) continue;
+
+    const source = join(resourcesDir, name);
+    if (!existsSync(source)) {
+      return {
+        ok: false,
+        error:
+          `This build is missing its bundled example workflow "${name}": nothing at ${source}. ` +
+          'That is a packaging fault, not something you can fix by reinstalling — ' +
+          'packages/app/electron-builder.yml must ship packages/app/resources as extraResources ' +
+          'under "resources", which is where the app looks for them. ' +
+          'File → Open still works on any workflow you already have.',
+      };
+    }
+
+    try {
+      await copyFile(source, target);
+    } catch (err) {
+      return { ok: false, error: `Could not copy the example workflow to ${target}: ${reason(err)}` };
     }
   }
+
   return openPath(join(dir, EXAMPLES[0]));
 }
 
@@ -126,6 +173,6 @@ export async function save(
     }
     return { ok: true, path: targetPath };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: reason(err) };
   }
 }

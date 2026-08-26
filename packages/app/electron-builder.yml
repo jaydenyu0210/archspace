@@ -1,6 +1,7 @@
 # electron-builder configuration for the macOS build (ARCHITECTURE §13 /
-# ADR-0012). Read `docs/releasing.md` next to this file's changes — the two are
-# written to be kept in sync.
+# ADR-0012). Read `docs/releasing.md` next to this file's changes — that doc,
+# this file and .github/workflows/release.yml are a trio written to be kept in
+# sync, and the doc is the one that explains the procedure in prose.
 #
 # Why this file and not a `build:` block in package.json: the packaging
 # decisions here need comments (entitlements especially), and package.json
@@ -23,12 +24,18 @@ directories:
 
 # electron-vite emits everything (including the workspace packages, which ship
 # TypeScript source and are bundled rather than externalised) into out/.
-# `resources/` is listed because main resolves the shipped example workflows via
-# `app.getAppPath() + '/resources'`; if that lookup ever moves to
-# `process.resourcesPath`, move these into extraResources below and drop the glob.
+#
+# `resources/` is deliberately NOT here. It used to be, and that was a bug:
+# anything in `files:` lands inside app.asar, i.e. under `app.getAppPath()`,
+# but `resourcesDir()` in src/main/index.ts resolves the examples from
+# `process.resourcesPath/resources` in a packaged app. Those are different
+# directories (`Contents/Resources/app.asar/resources` vs
+# `Contents/Resources/resources`), so first launch found nothing. The examples
+# now ship as extraResources below, exactly like the plugin, which is what main
+# already expects — and the release workflow greps the built .app to prove it,
+# so the two cannot drift apart again in silence.
 files:
   - out/**
-  - resources/**
   - package.json
   - '!**/*.map'
   - '!**/{.DS_Store,.git,.github,.vscode}'
@@ -44,6 +51,15 @@ files:
 # artifact. The release workflow does that explicitly; so does the root
 # `pnpm build` script.
 extraResources:
+  # The example workflows main copies into userData on first launch. `to:`
+  # must stay `resources`, because src/main/documents.ts is handed
+  # `join(process.resourcesPath, 'resources')` and refuses to open a workflow
+  # it cannot find there — with a message naming this file.
+  - from: resources
+    to: resources
+    filter:
+      - '*.archspace.yaml'
+
   - from: ../../plugins/aec-review
     to: plugins/aec-review
     filter:
@@ -115,12 +131,22 @@ dmg:
 # electron-updater reads the same feed (ARCHITECTURE §13). Releases are created
 # as drafts so a human runs the release gate — `spctl -a` on a clean machine and
 # an n-1 -> n update check — before anyone can download the artifact.
-# owner/repo are PLACEHOLDERS: this working tree is not a git repository and
-# the canonical GitHub location has not been confirmed. Fix these before the
-# first tagged release — electron-updater bakes them into app-update.yml, so a
-# wrong value ships a broken update feed. See docs/releasing.md.
+#
+# owner/repo BELOW ARE NOT REAL AND ARE NOT MEANT TO LOOK REAL. This working
+# tree has no git remote, so the canonical GitHub location is unconfirmed, and
+# electron-builder bakes whatever is here into the app's app-update.yml: a
+# plausible-but-wrong value would ship an update feed that 404s forever while
+# looking correct in review. An obviously-broken value cannot be mistaken for a
+# working one.
+#
+# Replace both with the real coordinates before the first tagged release.
+# .github/workflows/release.yml refuses to publish a signed tag build while the
+# REPLACE-ME token is still here, so this cannot ship by accident — but a local
+# `pnpm dist` will happily produce an app whose updater points at nothing, which
+# is the honest state of auto-update in this build (see the note in the release
+# workflow: nothing in src/ calls electron-updater yet either).
 publish:
   - provider: github
-    owner: archspace
-    repo: archspace
+    owner: REPLACE-ME-github-owner
+    repo: REPLACE-ME-github-repo
     releaseType: draft

@@ -11,14 +11,45 @@
 #     job summary. An unsigned artifact that announces itself is useful; one
 #     that pretends is a support burden.
 #
-# Secrets, and how to produce each one: docs/releasing.md.
+# `docs/releasing.md` is the prose companion: the procedure, how to produce each
+# secret, and the release gate. It is the authority; the list below is the
+# minimum a reader of this file needs to follow the `env:` blocks without
+# leaving the page.
+#
+# REPOSITORY SECRETS (Settings → Secrets and variables → Actions). All five
+# signing secrets must be present together; any missing one downgrades the run
+# to an unsigned, unpublished build.
+#
+#   CSC_LINK           base64 of the "Developer ID Application" .p12:
+#                        base64 -i DeveloperID.p12 | pbcopy
+#   CSC_KEY_PASSWORD   the password used when exporting that .p12.
+#   APPLE_API_KEY      base64 of the App Store Connect .p8 private key:
+#                        base64 -i AuthKey_XXXXXXXXXX.p8 | pbcopy
+#                      (electron-builder wants a FILE PATH in this variable, so
+#                      the job below decodes the secret to disk and passes the
+#                      path — see "Materialise the App Store Connect API key".)
+#   APPLE_API_KEY_ID   the key's 10-character Key ID (the XXXXXXXXXX above).
+#   APPLE_API_ISSUER   the App Store Connect issuer UUID.
+#   GH_TOKEN           OPTIONAL. Only needed to publish the draft Release under
+#                      an account other than the workflow's own token; when it
+#                      is absent the job falls back to GITHUB_TOKEN, which the
+#                      `permissions: contents: write` below makes sufficient.
+#
+# BEFORE THE FIRST REAL RELEASE: the electron-updater feed coordinates in
+# packages/app/electron-builder.yml are still REPLACE-ME placeholders. The
+# "Decide how this run packages" step below hard-fails a signed tag build while
+# that is true, because a published release whose app-update.yml points at a
+# non-existent repo is worse than no release at all.
 name: Release
 
 on:
   push:
     tags:
       - 'v*'
-  # For dry runs: builds and uploads to the workflow's artifacts, never publishes.
+  # For dry runs: builds and uploads to the workflow's artifacts, never
+  # publishes. "Never" is enforced below by keying --publish off the event, not
+  # off the signing secrets — a manual run in the canonical repo has every
+  # secret it needs to publish, and must still refuse to.
   workflow_dispatch:
 
 concurrency:
@@ -27,8 +58,8 @@ concurrency:
 
 permissions:
   # electron-builder creates the draft GitHub Release through GH_TOKEN below;
-  # this grants the default token the same right so a maintainer can fall back
-  # to it. Nothing else in this workflow writes.
+  # this grants the default token the same right, which is what makes the
+  # GITHUB_TOKEN fallback real rather than decorative. Nothing else here writes.
   contents: write
 
 jobs:
@@ -47,10 +78,28 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      # electron-builder derives artifact names AND the version inside
+      # latest-mac.yml from packages/app/package.json — not from the tag. If the
+      # two disagree, the release looks fine and the updater never offers it,
+      # which is the kind of bug that is only discovered by users. Cheaper to
+      # fail here.
+      - name: Tag and app version must agree
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./packages/app/package.json').version")"
+          if [ "${tag}" != "${pkg}" ]; then
+            echo "::error title=Version mismatch::Tag is v${tag} but packages/app/package.json says ${pkg}. electron-builder names the artifacts and latest-mac.yml from package.json, so publishing this would ship an update feed no installed app will ever accept. Bump package.json, or retag."
+            exit 1
+          fi
+
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # The release gate is the CI gate. A tag does not get a shortcut.
+      # The release gate is the CI gate: same steps, same order, same flags as
+      # .github/workflows/ci.yml. A tag does not get a shortcut, and any
+      # divergence between the two files is a bug in whichever one drifted.
       - name: Lint
         run: pnpm lint
       - name: Typecheck
@@ -64,40 +113,81 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # `--trust-plugin aec-review` is required, not optional: the example
+      # workflow uses `aec.review.code_compliance` from the first-party plugin,
+      # and ADR-0008 makes an unconsented plugin unloadable. Without the flag
+      # this step exits 1 on "plugin \"aec-review\" is needs-consent". ci.yml
+      # passes it for the same reason.
       - name: Headless CLI integration run
-        run: pnpm cli run packages/app/resources/concept-compliance.archspace.yaml
+        run: pnpm cli run packages/app/resources/concept-compliance.archspace.yaml --trust-plugin aec-review
 
-      # Secrets are empty on forks and in repos that have not been configured,
-      # so this single check covers both cases without a fork-detection hack.
-      - name: Determine signing capability
-        id: signing
+      # One place decides what this run is allowed to do, so the packaging steps
+      # below stay dumb. Secrets are empty on forks and in repos that have not
+      # been configured, so the same check covers both without a fork hack.
+      - name: Decide how this run packages
+        id: plan
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           set -euo pipefail
+
+          # CSC_KEY_PASSWORD is in this list because a .p12 without its password
+          # fails deep inside electron-builder with an opaque keychain error.
           missing=""
-          [ -n "${CSC_LINK}" ]         || missing="${missing} CSC_LINK"
-          [ -n "${APPLE_API_KEY}" ]    || missing="${missing} APPLE_API_KEY"
-          [ -n "${APPLE_API_KEY_ID}" ] || missing="${missing} APPLE_API_KEY_ID"
-          [ -n "${APPLE_API_ISSUER}" ] || missing="${missing} APPLE_API_ISSUER"
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            [ -n "${!name-}" ] || missing="${missing} ${name}"
+          done
+
           if [ -z "${missing}" ]; then
-            echo "signed=true" >> "$GITHUB_OUTPUT"
-            echo "Signing and notarization enabled."
+            signed=true
           else
-            echo "signed=false" >> "$GITHUB_OUTPUT"
-            echo "missing=${missing}" >> "$GITHUB_OUTPUT"
+            signed=false
             echo "::warning title=Unsigned build::Missing secrets:${missing}. This build will NOT be signed, notarized or published."
           fi
+
+          # The electron-updater feed. electron-builder bakes owner/repo into the
+          # app's app-update.yml, so shipping the placeholder ships a dead feed.
+          cfg=packages/app/electron-builder.yml
+          owner="$(sed -n 's/^[[:space:]]*owner:[[:space:]]*//p' "${cfg}" | head -n 1)"
+          repo="$(sed -n 's/^[[:space:]]*repo:[[:space:]]*//p' "${cfg}" | head -n 1)"
+          feed=configured
+          case "${owner}${repo}" in
+            *REPLACE-ME*) feed=placeholder ;;
+          esac
+
+          # Publishing requires all three: a tag, signing, and a real feed.
+          publish=never
+          if [ "${signed}" = true ] && [ "${feed}" = configured ] && [ "${GITHUB_REF_TYPE-}" = tag ]; then
+            publish=always
+          fi
+
+          if [ "${feed}" = placeholder ] && [ "${signed}" = true ] && [ "${GITHUB_REF_TYPE-}" = tag ]; then
+            echo "::error title=Update feed not configured::${cfg} still has publish.owner=${owner} publish.repo=${repo}. Set them to this repository's real coordinates before tagging a release — electron-updater bakes them into app-update.yml, and a published build with the placeholder can never receive an update."
+            exit 1
+          fi
+          if [ "${feed}" = placeholder ]; then
+            echo "::warning title=Update feed not configured::${cfg} still has REPLACE-ME publish coordinates; auto-update in this artifact points at nothing."
+          fi
+
+          {
+            echo "signed=${signed}"
+            echo "missing=${missing}"
+            echo "feed=${feed}"
+            echo "publish=${publish}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "signed=${signed} feed=${feed} publish=${publish}"
 
       # electron-builder passes APPLE_API_KEY to notarytool as a PATH to the
       # .p8 private key, so the secret (which holds the base64 of that file)
       # has to become a file first. Written outside the workspace so no glob in
       # electron-builder.yml can ever sweep it into the app bundle.
       - name: Materialise the App Store Connect API key
-        if: steps.signing.outputs.signed == 'true'
+        if: steps.plan.outputs.signed == 'true'
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: |
@@ -114,12 +204,13 @@ jobs:
       - name: Build renderer, preload and main
         run: pnpm --filter @archspace/app build
 
-      # Signed + notarized + published as a DRAFT release. Draft, not published:
-      # the release gate (spctl -a on a clean machine, updater n-1 -> n) is a
-      # human step, and a draft is the only thing that reliably stops a download
-      # link existing before that step happens.
-      - name: Package, sign, notarize and publish (draft)
-        if: steps.signing.outputs.signed == 'true'
+      # Signed + notarized. Published as a DRAFT release only on a tag: the
+      # release gate (spctl -a on a clean machine, updater n-1 -> n) is a human
+      # step, and a draft is the only thing that reliably stops a download link
+      # existing before that step happens. A workflow_dispatch dry run reaches
+      # this step with publish=never.
+      - name: Package, sign and notarize
+        if: steps.plan.outputs.signed == 'true'
         working-directory: packages/app
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -127,13 +218,15 @@ jobs:
           APPLE_API_KEY: ${{ runner.temp }}/asc/AuthKey.p8
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: pnpm exec electron-builder --mac --universal --publish always
+          # GH_TOKEN is optional; `permissions: contents: write` above is what
+          # makes the fallback able to create the draft release.
+          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+        run: pnpm exec electron-builder --mac --universal --publish ${{ steps.plan.outputs.publish }}
 
       # No secrets: build anyway, so the packaging path itself stays tested on
       # every fork PR that touches it — but sign nothing and publish nothing.
       - name: Package UNSIGNED (no publish)
-        if: steps.signing.outputs.signed != 'true'
+        if: steps.plan.outputs.signed != 'true'
         working-directory: packages/app
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -143,11 +236,49 @@ jobs:
         if: always()
         run: rm -f "${RUNNER_TEMP}/asc/AuthKey.p8"
 
+      # The packaging bug this catches has no unit test and no dev-mode
+      # symptom: main resolves the bundled examples from
+      # `process.resourcesPath/resources` and the first-party plugin from
+      # `process.resourcesPath/plugins` (packages/app/src/main/index.ts), while
+      # electron-builder.yml decides where they actually land. `files:` puts
+      # things inside app.asar; `extraResources:` puts them beside it. Get that
+      # wrong and `pnpm dev` is perfect while the .dmg opens to an empty canvas.
+      # So: read the real bundle and assert the runtime paths exist. Deriving
+      # the example list from the source directory (rather than restating it)
+      # means adding a workflow cannot silently skip this check.
+      - name: Verify the packaged layout matches what main resolves at runtime
+        run: |
+          set -euo pipefail
+          app="$(find packages/app/dist -maxdepth 3 -name 'Archspace.app' -print -quit)"
+          if [ -z "${app}" ]; then
+            echo "::error title=No app bundle::electron-builder produced no Archspace.app under packages/app/dist."
+            exit 1
+          fi
+          echo "Inspecting ${app}"
+          res="${app}/Contents/Resources"
+          fail=0
+
+          for src in packages/app/resources/*.archspace.yaml; do
+            name="$(basename "${src}")"
+            if [ ! -f "${res}/resources/${name}" ]; then
+              echo "::error title=Bundled example missing::${name} is not at Contents/Resources/resources/. main/index.ts resolves examples from process.resourcesPath/resources, so packages/app/electron-builder.yml must ship packages/app/resources there via extraResources — not via files:, which would bury them in app.asar."
+              fail=1
+            fi
+          done
+
+          if [ ! -f "${res}/plugins/aec-review/dist/index.js" ]; then
+            echo "::error title=First-party plugin missing::Contents/Resources/plugins/aec-review/dist/index.js is absent. The plugin must ship as files beside the app (extraResources), because the plugin host forks it from disk (ADR-0008); it cannot be loaded from inside the asar. Check that 'pnpm --filter @archspace/plugin-aec-review build' ran before packaging."
+            fail=1
+          fi
+
+          [ "${fail}" -eq 0 ] || exit 1
+          echo "Bundle layout OK: examples and the first-party plugin are where main looks for them."
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: >-
-            archspace-macos-${{ steps.signing.outputs.signed == 'true' && 'signed' || 'UNSIGNED' }}
+            archspace-macos-${{ steps.plan.outputs.signed == 'true' && 'signed' || 'UNSIGNED' }}
           if-no-files-found: error
           retention-days: 14
           path: |
@@ -160,21 +291,31 @@ jobs:
         if: always()
         run: |
           {
-            if [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
-              echo "### Signed release build"
+            if [ "${{ steps.plan.outputs.signed }}" = "true" ]; then
+              echo "### Signed build"
               echo
-              echo "Artifacts are Developer ID signed and notarized, and a **draft** GitHub Release was created."
+              echo "Artifacts are Developer ID signed and notarized."
               echo
-              echo "Before publishing that draft, run the release gate in \`docs/releasing.md\`:"
-              echo "1. \`spctl -a -vvv -t install /Applications/Archspace.app\` on a machine that has never seen this app."
-              echo "2. Install the previous release and confirm it auto-updates to this one."
+              if [ "${{ steps.plan.outputs.publish }}" = "always" ]; then
+                echo "A **draft** GitHub Release was created. Before publishing that draft, run the release gate in \`docs/releasing.md\` (ADR-0012):"
+                echo "1. \`spctl -a -vvv -t install /Applications/Archspace.app\` on a machine that has never seen this app."
+                echo "2. Install the previous release and confirm it auto-updates to this one."
+              else
+                echo "Nothing was published: this run is not a tag push, or the update feed is still a placeholder."
+              fi
             else
               echo "### UNSIGNED build — do not distribute"
               echo
-              echo "Missing secrets:\`${{ steps.signing.outputs.missing }}\`"
+              echo "Missing secrets:\`${{ steps.plan.outputs.missing }}\`"
               echo
               echo "The attached .dmg/.zip are **not signed and not notarized**. macOS Gatekeeper will refuse to open them"
               echo "on any machine other than the one that built them. They exist so that the packaging path stays tested"
               echo "on forks; they are not a release. Nothing was published."
+            fi
+            if [ "${{ steps.plan.outputs.feed }}" = "placeholder" ]; then
+              echo
+              echo "> **Auto-update is not wired up in this artifact.** \`publish.owner\`/\`publish.repo\` in"
+              echo "> \`packages/app/electron-builder.yml\` are still \`REPLACE-ME\` placeholders, so the app-update.yml"
+              echo "> inside the bundle points at no repository."
             fi
           } >> "$GITHUB_STEP_SUMMARY"

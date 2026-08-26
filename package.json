@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "pnpm --filter @archspace/app dev",
     "build": "pnpm --filter @archspace/plugin-aec-review build && pnpm --filter @archspace/app build",
-    "dist": "pnpm run build && pnpm --filter @archspace/app dist",
+    "dist": "pnpm --filter @archspace/plugin-aec-review build && pnpm --filter @archspace/app dist",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
     "lint": "eslint .",
