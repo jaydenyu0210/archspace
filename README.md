@@ -356,19 +356,18 @@ inspector display.
 
 ### Known gaps in the repo itself
 
-- **`pnpm test` does not pass in this tree yet.** One cause is structural and
-  worth knowing before you go bug-hunting: `pnpm test` is `pnpm -r run test`,
-  every package but `packages/app` declares `"test": "vitest run"`, and **Vitest
-  exits non-zero when a package has no test files at all** — so one package
-  missing a suite reds the whole command with nothing actually failing an
-  assertion. `packages/cli` is in that
-  state today. Run the suites package by package to see what is genuinely
-  failing.
-- `docs/releasing.md` is referenced by `release.yml` and
-  `packages/app/electron-builder.yml` but does not exist yet.
-- The root `pnpm dist` script is broken (see
-  [Package a macOS app locally](#package-a-macos-app-locally)).
+- **A few suites are still red**, in `ai-gateway`, `mcp-host` and `cli` — each
+  a newly written test that found a genuine edge case the source does not
+  handle yet, not a broken build. Run the suites package by package to see
+  what is actually failing.
+- One structural trap worth knowing before you go bug-hunting: `pnpm test` is
+  `pnpm -r run test`, every package but `packages/app` declares
+  `"test": "vitest run"`, and **Vitest exits non-zero when a package has no
+  test files at all** — so a new package without a suite reds the whole
+  command with nothing actually failing an assertion.
 - No application icon.
+- No 3D/IFC preview, no published release, and no auto-update wiring — see the
+  status table above.
 
 ---
 
