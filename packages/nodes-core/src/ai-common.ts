@@ -1,12 +1,13 @@
 /**
  * Shared ground for the ai.* nodes (ARCHITECTURE §10 / ADR-0010).
  *
- * The three ai.* nodes make the same three decisions: which model profile to
- * ask for, how a `json` context port becomes prompt text, and what an empty
- * form field means. They are made once, here, because they are user-visible —
- * if `ai.generate_text` and `ai.generate_object` rendered the same wired table
+ * The ai.* nodes make the same decisions: which model profile to ask for, how a
+ * `json` context port becomes prompt text, and what an empty form field means.
+ * They are made once, here, because they are user-visible — if
+ * `ai.generate_text` and `ai.generate_object` rendered the same wired table
  * differently, one graph would send two different prompts and nothing on
- * screen would explain why.
+ * screen would explain why. (`ai.embed` shares only the profile half: it has
+ * no prompt to compose.)
  *
  * Rejected alternative: a `makeAiNode()` factory that also builds the
  * manifest. It would hide the manifest, and the manifest is precisely the half
@@ -14,7 +15,7 @@
  * document validation and cache key all come from it (§5.2). Every sibling in
  * this package spells its manifest out in full; so do these.
  *
- * Nothing here — and nothing in the three nodes — imports
+ * Nothing here — and nothing in the ai.* nodes — imports
  * @archspace/ai-gateway or names a provider. They see `ctx.ai` and nothing
  * else. That is ADR-0010's whole point: it is what lets one document run on a
  * cloud model here and a local one on the next desk.
@@ -22,7 +23,7 @@
 import type { JsonSchemaProperty, Value } from '@archspace/node-sdk';
 
 /**
- * The `profile` param, identical in all three ai.* manifests.
+ * The `profile` param, identical in every ai.* manifest.
  *
  * Deliberately NOT `promotable`. `requires.ai` is derived statically from each
  * node's `config.profile` when a document is saved (§4.2 rule 7) — it is what

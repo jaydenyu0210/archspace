@@ -36,6 +36,7 @@ import { spaceProgramNode } from './space-program.js';
 import { aiGenerateTextNode } from './ai-generate-text.js';
 import { aiGenerateObjectNode } from './ai-generate-object.js';
 import { aiExtractTableNode } from './ai-extract-table.js';
+import { aiEmbedNode } from './ai-embed.js';
 
 export * from './shapes.js';
 
@@ -57,6 +58,7 @@ export { spaceProgramNode, type SpaceProgramParams } from './space-program.js';
 export { aiGenerateTextNode, type AiGenerateTextParams } from './ai-generate-text.js';
 export { aiGenerateObjectNode, type AiGenerateObjectParams } from './ai-generate-object.js';
 export { aiExtractTableNode, type AiExtractTableParams } from './ai-extract-table.js';
+export { aiEmbedNode, type AiEmbedParams } from './ai-embed.js';
 
 /** The deterministic `aec.*` design nodes. No network, no model, no keys. */
 const AEC_NODES: readonly NodeModule<unknown>[] = [
@@ -81,6 +83,7 @@ const AI_NODES: readonly NodeModule<unknown>[] = [
   aiGenerateTextNode,
   aiGenerateObjectNode,
   aiExtractTableNode,
+  aiEmbedNode,
 ] as NodeModule<unknown>[];
 
 /** Every built-in node type id, for tests and docs. */
