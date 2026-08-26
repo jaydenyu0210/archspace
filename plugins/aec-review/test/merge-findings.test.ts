@@ -248,6 +248,9 @@ describe('aec.review.merge_findings', () => {
     const res = merged(run);
     const table = run.outputs.findings as unknown as TableValue;
     expect(table.rows).toHaveLength(res.findings.length);
+    // Guard the loop below: without this the mirror assertions are vacuous
+    // the moment the fixture stops producing findings.
+    expect(res.findings.length).toBeGreaterThan(0);
     res.findings.forEach((f, i) => {
       expect(table.rows[i].id).toBe(f.id);
       expect(table.rows[i].rule_id).toBe(f.ruleId);

@@ -241,6 +241,9 @@ describe('aec.review.filter_findings', () => {
       'message',
     ]);
     expect(table.rows).toHaveLength(res.findings.length);
+    // Guard the loop below: without this the mirror assertions are vacuous
+    // the moment the fixture stops producing findings.
+    expect(res.findings.length).toBeGreaterThan(0);
     res.findings.forEach((f, i) => {
       expect(table.rows[i].id).toBe(f.id);
       expect(table.rows[i].severity).toBe(f.severity);

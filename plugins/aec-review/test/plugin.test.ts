@@ -22,7 +22,7 @@ import {
 } from '../src/index.js';
 import defaultExport from '../src/index.js';
 import { buildGrid, buildPlan, buildSite, SMALL_BRIEF } from './fixtures.js';
-import { portTypeMismatches, unknownOutputPortTypes } from './port-types.js';
+import { portTypeMismatches } from './port-types.js';
 
 const SEVEN_TYPES = [
   'aec.review.accessibility',
@@ -178,12 +178,10 @@ describe('plugin entry point', () => {
 });
 
 describe('output port types', () => {
-  it('models every output port type the plugin declares', () => {
-    // If this fails the conformance assertion below has gone blind — see the
-    // header of port-types.ts.
-    for (const mod of nodes) expect(unknownOutputPortTypes(mod), mod.manifest.type).toEqual([]);
-  });
-
+  // The "is every declared type one we can judge?" guard that used to live
+  // here is gone with the hand-written checker it protected: `isValueOfType`
+  // covers the whole §6 grammar, and a port type that does not parse is
+  // already refused by the registry in the registration test above.
   it('emits every declared output, each inhabiting its declared type', async () => {
     const { pairs } = await runEveryNode();
     expect(pairs).toHaveLength(SEVEN_TYPES.length);

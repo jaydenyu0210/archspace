@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { createNodeRegistry, type AssetRef, type NodeModule } from '@archspace/node-sdk';
-import { type RunNodeResult } from '@archspace/node-sdk/testkit';
+import { runNode, type RunNodeResult } from '@archspace/node-sdk/testkit';
 import { isValueOfType } from '@archspace/types';
 import {
   coreNodeTypes,
@@ -17,7 +17,8 @@ import {
   spaceProgramNode,
   type FloorPlanResult,
 } from '../src/index.js';
-import { runPipeline } from './helpers.js';
+import { toValue } from '../src/util.js';
+import { reviewFixture, runPipeline } from './helpers.js';
 
 /** The id the review node carried before it moved out of this package. */
 const PRE_MOVE_REVIEW_TYPE = 'aec.code_compliance_review';
@@ -42,6 +43,12 @@ describe('registerCoreNodes', () => {
     registerCoreNodes(registry);
 
     const registered = registry.manifests().map((m) => m.type);
+    // Assert the registry is actually populated first. Without this the
+    // filters below are satisfied by an empty registry, which would make the
+    // one test guarding the plugin boundary pass in precisely the situation
+    // where registration had broken entirely.
+    expect(registered.length).toBeGreaterThan(0);
+    expect(registered).toContain('aec.generate_floor_plan');
     expect(registered.filter((t) => t.startsWith('aec.review.'))).toEqual([]);
     expect(coreNodeTypes().filter((t) => t.startsWith('aec.review.'))).toEqual([]);
     // Named explicitly: re-adding either the plugin's id or the pre-move one
@@ -70,6 +77,26 @@ describe('registerCoreNodes', () => {
   });
 });
 
+describe('input immutability', () => {
+  it('the report node does not mutate the review it was handed', async () => {
+    // Comparing the review across two runs cannot catch this — each run builds
+    // a fresh fixture, so a mutation in the first is invisible in the second.
+    // The only way to see it is to hold one object across the call.
+    const review = reviewFixture();
+    const before = JSON.stringify(review);
+
+    const brief = await runNode(projectBriefNode, {});
+    await runNode(generateComplianceReportNode, {
+      params: { mock_latency_ms: 0 },
+      inputs: { brief: brief.outputs.brief, review: toValue(review) },
+    });
+
+    // A node that edits its input corrupts every other consumer of that wire,
+    // and the engine hands the same value to each downstream node (§7.2).
+    expect(JSON.stringify(review)).toBe(before);
+  });
+});
+
 describe('determinism', () => {
   it('identical params ⇒ deep-equal outputs, identical IFC bytes, identical GUIDs', async () => {
     const a = await runPipeline();
@@ -79,9 +106,6 @@ describe('determinism', () => {
     expect(b.program.outputs).toEqual(a.program.outputs);
     expect(b.plan.outputs).toEqual(a.plan.outputs);
     expect(b.bim.outputs).toEqual(a.bim.outputs); // covers the GUIDs in summary
-    // The review fixture is rebuilt per run, so this also catches the report
-    // node mutating the result it was handed.
-    expect(b.review).toEqual(a.review);
     expect(b.report.outputs).toEqual(a.report.outputs);
 
     const refA = a.bim.outputs.model as AssetRef;

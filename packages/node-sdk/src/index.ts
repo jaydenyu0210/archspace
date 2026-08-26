@@ -37,6 +37,20 @@ export function isAssetRef(v: unknown): v is AssetRef {
 /** Port type expression — grammar and rules in @archspace/types (§6). */
 export type PortType = string;
 
+/**
+ * Does a value satisfy a port type expression? Re-exported from
+ * @archspace/types, which owns the grammar (§6 / ADR-0006).
+ *
+ * It lives on the SDK's surface because "my node's outputs match the ports it
+ * declares" is the one assertion every node author writes, and a plugin author
+ * outside this repo can only reach the SDK — the first-party plugin proved the
+ * point by hand-transcribing this function into its own test suite for want of
+ * a way to import it. A hand-copy of a type checker is a copy that silently
+ * stops agreeing with the engine, which is exactly the drift the port system
+ * exists to prevent.
+ */
+export { isValueOfType } from '@archspace/types';
+
 export interface PortDecl {
   id: string;                // snake_case, unique within the node
   type: PortType;
