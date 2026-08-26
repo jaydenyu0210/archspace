@@ -5,7 +5,7 @@
  * inside execute() and still return a markdown `text` report.
  */
 import type { NodeModule } from '@archspace/node-sdk';
-import type { ComplianceFinding, ComplianceReviewResult, ProjectBrief } from './shapes.js';
+import type { ComplianceFinding, ComplianceReviewResult, ProjectBrief, ReviewResult } from './shapes.js';
 import { requireInput, sleep } from './util.js';
 
 export interface GenerateComplianceReportParams {
@@ -21,6 +21,22 @@ const SEVERITY_ORDER: { severity: ComplianceFinding['severity']; heading: string
   { severity: 'warning', heading: 'Warnings' },
   { severity: 'advisory', heading: 'Advisories' },
 ];
+
+/**
+ * What the report names as the rule set it was checked against.
+ *
+ * The code review phrases its own version ("IBC 2024") in `code.version`, so
+ * that wins when it is there. Every other review — accessibility, zoning,
+ * energy, and anything merged — carries only `standard`, which is the field
+ * `ReviewResult` guarantees. Reading `code` unconditionally was a bug that only
+ * showed up when a review other than the code one reached this node.
+ */
+function standardLabel(review: ReviewResult): string {
+  const code = (review as Partial<ComplianceReviewResult>).code;
+  if (typeof code?.version === 'string' && code.version !== '') return code.version;
+  const { name, version } = review.standard;
+  return version === '' ? name : `${name} ${version}`;
+}
 
 export const generateComplianceReportNode: NodeModule<GenerateComplianceReportParams> = {
   manifest: {
@@ -64,7 +80,14 @@ export const generateComplianceReportNode: NodeModule<GenerateComplianceReportPa
 
   async execute(ctx, inputs, params) {
     const brief = requireInput<ProjectBrief>(inputs, 'brief', 'aec.generate_compliance_report');
-    const review = requireInput<ComplianceReviewResult>(inputs, 'review', 'aec.generate_compliance_report');
+    // `ReviewResult`, not `ComplianceReviewResult`: the port is `json` and any
+    // review can be wired into it — an accessibility one, an energy one, or the
+    // output of `aec.review.merge_findings`, which is the shipped
+    // branching-review example's whole shape. Only the code-discipline review
+    // carries `code`, so typing it as present here is what made that example
+    // die with "Cannot read properties of undefined (reading 'version')".
+    const review = requireInput<ReviewResult>(inputs, 'review', 'aec.generate_compliance_report');
+    const standard = standardLabel(review);
 
     ctx.progress(0.3, 'drafting report');
     await sleep(params.mock_latency_ms / 2, ctx.signal);
@@ -83,7 +106,7 @@ export const generateComplianceReportNode: NodeModule<GenerateComplianceReportPa
       `| Site | ${brief.site.widthM} × ${brief.site.depthM} m (${brief.site.areaM2} m²) |`,
       `| Target gross area | ${brief.targetGrossAreaM2} m² |`,
       `| Occupancy class | ${brief.occupancyClass} |`,
-      `| Code version | ${review.code.version} |`,
+      `| Checked against | ${standard} |`,
       '',
     );
 
@@ -92,15 +115,15 @@ export const generateComplianceReportNode: NodeModule<GenerateComplianceReportPa
       lines.push(
         violations > 0
           ? `This concept design review recorded ${violations} violation(s), ${warnings} warning(s), and ` +
-              `${advisories} advisory note(s) across ${checked} automated checks against ${review.code.version}. ` +
+              `${advisories} advisory note(s) across ${checked} automated checks against ${standard}. ` +
               `The scheme requires design revisions before it can be considered code-conforming.`
-          : `This concept design review completed ${checked} automated checks against ${review.code.version} ` +
+          : `This concept design review completed ${checked} automated checks against ${standard} ` +
               `with no violations (${warnings} warning(s), ${advisories} advisory note(s)). ` +
               `The scheme appears code-conforming at concept level.`,
       );
     } else {
       lines.push(
-        `${violations} violations, ${warnings} warnings, ${advisories} advisories across ${checked} checks (${review.code.version}).`,
+        `${violations} violations, ${warnings} warnings, ${advisories} advisories across ${checked} checks (${standard}).`,
       );
     }
     lines.push('');

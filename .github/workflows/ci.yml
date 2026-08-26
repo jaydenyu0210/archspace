@@ -76,5 +76,16 @@ jobs:
       # permissions. A runner has no consent dialog, so the grant is made here
       # where it is reviewable in the diff. If this flag were ever unnecessary,
       # that would mean consent had stopped being enforced.
+      #
+      # ALL THREE shipped examples, not just the first. Running one of them is
+      # how `branching-review` shipped broken: it wires a merged review into the
+      # report node, which read a field only the code review has, and died. An
+      # example the product ships and CI never runs is an example that is not
+      # actually tested — and these are the first thing a new user opens.
       - name: Headless CLI integration run
-        run: pnpm cli run packages/app/resources/concept-compliance.archspace.yaml --trust-plugin aec-review
+        run: |
+          for workflow in packages/app/resources/*.archspace.yaml; do
+            echo "::group::$workflow"
+            pnpm cli run "$workflow" --trust-plugin aec-review
+            echo "::endgroup::"
+          done
