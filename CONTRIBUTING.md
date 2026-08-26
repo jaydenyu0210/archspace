@@ -168,6 +168,27 @@ or by review. None of them is stylistic.
 `unknown` plus a narrowing check is always available, and every public contract
 in this repo is written without `any`.
 
+### Nothing that stringifies an object, and no unawaited promise
+
+Four type-aware rules are on — `no-floating-promises`, `no-misused-promises`,
+`await-thenable`, `no-base-to-string`. They exist because `tsc` accepts all
+four mistakes and each has already shipped here at least once: a floating
+promise around the app's whole startup path, and a `String()` that rendered
+`[object Object]` into an editable form field, where the next keystroke wrote
+that literal string back over the user's data.
+
+The full type-checked presets are deliberately NOT on; they report around two
+hundred mostly-stylistic findings, which is the kind of noise people learn to
+scroll past. If you want to see what they say, it is one command:
+
+```bash
+npx eslint packages plugins --rule '{"@typescript-eslint/no-unnecessary-condition":"error"}'
+```
+
+These rules need type information, which is why `packages/app/tsconfig.json`
+exists: a references-only file so the project service can find the three real
+configs. It is inert for the build, which passes `-p` explicitly.
+
 ### No escape hatches to reach green
 
 `@ts-expect-error`, `eslint-disable`, `.skip`, and assertions weakened until
