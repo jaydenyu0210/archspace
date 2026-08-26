@@ -17,15 +17,25 @@ import { useStore } from '../store';
 import { ParamField } from './ParamField';
 
 export function Inspector() {
-  const selected = useStore((s) => s.nodes.filter((n) => n.selected));
+  // Every selector here must return a value that is REFERENCE-STABLE when the
+  // store has not changed. zustand reads through `useSyncExternalStore`, which
+  // compares snapshots by identity, so a selector that builds a fresh array on
+  // each call reports "changed" forever. This component used to select
+  // `s.nodes.filter((n) => n.selected)` and did exactly that: React gave up
+  // with error #185 (maximum update depth), the whole tree failed to mount, and
+  // the app opened a window with an empty body — no error a user could see, and
+  // no CI step launches Electron, so nothing ever noticed. Derive AFTER
+  // selecting, never inside the selector.
+  const nodes = useStore((s) => s.nodes);
   const manifestByType = useStore((s) => s.manifestByType);
   const updateParam = useStore((s) => s.updateParam);
   const meta = useStore((s) => s.meta);
   const setMeta = useStore((s) => s.setMeta);
   const docIssues = useStore((s) => s.docIssues);
   const rejectedIssues = useStore((s) => s.run.rejectedIssues);
-  const nodes = useStore((s) => s.nodes);
   const schemaHashes = useStore((s) => s.schemaHashes);
+
+  const selected = nodes.filter((n) => n.selected);
   const drifted = driftedNodeIds(nodes, schemaHashes);
 
   if (selected.length === 1) {
