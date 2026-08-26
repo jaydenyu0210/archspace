@@ -19,6 +19,18 @@
  *    seconds; the earlier note that this would take a minute predates
  *    `projectService`.
  *
+ *    `no-unnecessary-condition` is the one type-aware rule worth wanting that
+ *    stays off, and for a specific reason rather than for noise. It reports 77
+ *    findings here and **nearly all of them are correct defensive code** —
+ *    `arr[0]`, `record[key]`, `e.ports[0]` guarded with an `undefined` check.
+ *    Those guards are right; the types are wrong, because
+ *    `noUncheckedIndexedAccess` is off and an index therefore claims to return
+ *    a value it may not have. The rule believes the type and calls the guard
+ *    dead. Turning the flag on is the real fix and would make the rule
+ *    trustworthy — it is 648 compiler errors across twelve packages (measured,
+ *    2026-08-26), so it is a migration someone should schedule, not a flag to
+ *    flip. Until then this rule would train people to delete correct checks.
+ *
  * 2. **CommonJS on purpose.** The repo is ESM everywhere, but the root
  *    package.json has no `"type": "module"`, so ESLint loads this file as CJS.
  *    Renaming it to `.mjs` would work too; keeping the conventional name and

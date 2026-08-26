@@ -179,10 +179,25 @@ that literal string back over the user's data.
 
 The full type-checked presets are deliberately NOT on; they report around two
 hundred mostly-stylistic findings, which is the kind of noise people learn to
-scroll past. If you want to see what they say, it is one command:
+scroll past.
+
+One of them deserves a specific warning. `no-unnecessary-condition` reports 77
+findings here and **nearly all are correct defensive code** — `arr[0]`,
+`record[key]` and `e.ports[0]` guarded with an `undefined` check. Those guards
+are right and the types are wrong: `noUncheckedIndexedAccess` is off, so an
+index claims to return a value it may not have, and the rule believes it. Do
+not "fix" those findings by deleting the checks. Enabling
+`noUncheckedIndexedAccess` is the real fix and is worth doing — it was measured
+at 648 compiler errors across twelve packages on 2026-08-26, so it is a
+migration to schedule rather than a flag to flip.
+
+If you want to see what the presets say, it is one command:
 
 ```bash
-npx eslint packages plugins --rule '{"@typescript-eslint/no-unnecessary-condition":"error"}'
+# Scoped to .ts/.tsx on purpose: a type-aware rule crashes on the .mjs build
+# scripts, which have no project to draw type information from.
+npx eslint 'packages/**/*.ts' 'packages/**/*.tsx' 'plugins/**/*.ts' \
+  --rule '{"@typescript-eslint/no-unnecessary-condition":"error"}'
 ```
 
 These rules need type information, which is why `packages/app/tsconfig.json`
