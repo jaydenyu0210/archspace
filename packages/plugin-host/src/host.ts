@@ -72,7 +72,7 @@ import {
   type HostCallMethod,
   type SecretGetArgs,
 } from './protocol.js';
-import { forkPluginSpawn, type PluginProcess, type PluginSpawn, type PluginSpawnOptions } from './spawn.js';
+import { forkPluginSpawn, type PluginProcess, type PluginSpawn } from './spawn.js';
 
 export type { PluginProcess, PluginSpawn, PluginSpawnOptions } from './spawn.js';
 

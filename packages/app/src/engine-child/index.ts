@@ -21,7 +21,7 @@ import { createMemoryAssetStore, createNodeRegistry, type NodeModule, type NodeR
 import { registerCoreNodes } from '@archspace/nodes-core';
 import { createRunCache, startRun, validateGraph, GraphValidationError, type RunHandle } from '@archspace/engine';
 import { createAiGateway, defaultAiConfig, type ArchspaceAiGateway } from '@archspace/ai-gateway';
-import { createMcpHost, defaultMcpConfig, type McpHost, type McpServerStatus } from '@archspace/mcp-host';
+import { createMcpHost, type McpHost, type McpServerStatus } from '@archspace/mcp-host';
 import { createPluginHost, type InstalledPluginInfo, type PluginHost, type PluginProcess, type PluginSpawn } from '@archspace/plugin-host';
 import { mcpSupportCheck } from '@archspace/autodesk';
 import type { MessagePortMain } from 'electron';

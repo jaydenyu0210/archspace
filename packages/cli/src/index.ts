@@ -1,7 +1,7 @@
 /**
  * archspace — the headless runner and the integration harness (ADR-0013).
  *
- *   archspace run <workflow.archspace.yaml> [--target <nodeId>]
+ *   archspace run <workflow.archspace.yaml> [--target <nodeId>] [--trust-plugin <id>]
  *   archspace nodes                      what node types are available here
  *   archspace plugins                    installed plugins and their state
  *   archspace mcp [--connect <name>]     configured MCP servers and their tools
@@ -50,9 +50,11 @@ function usage(): never {
       '  archspace doctor [<workflow.archspace.yaml>]',
       '',
       'common flags:',
-      '  --config-dir <dir>   settings directory (default: the desktop app’s)',
-      '  --no-plugins         skip the plugin host entirely',
-      '  --verbose            include debug/info logs from the MCP and plugin hosts',
+      '  --config-dir <dir>      settings directory (default: the desktop app’s)',
+      '  --no-plugins            skip the plugin host entirely',
+      '  --trust-plugin <id>     consent to a plugin for this run only (repeatable);',
+      '                          grants exactly the permissions it declares',
+      '  --verbose               include debug/info logs from the MCP and plugin hosts',
     ].join('\n'),
   );
   process.exit(2);
@@ -63,6 +65,7 @@ async function runtime(): Promise<Runtime> {
     ...(option('config-dir') !== undefined ? { configDir: option('config-dir') as string } : {}),
     noPlugins: flag('no-plugins'),
     verbose: flag('verbose'),
+    trustPlugins: options('trust-plugin'),
   });
 }
 

@@ -69,5 +69,12 @@ jobs:
       # provider — the mock gateway serves the ai.* nodes. If this breaks, the
       # engine, the document format, the node registry or the plugin boundary
       # broke, and it says so in the event stream it prints.
+      #
+      # `--trust-plugin` is required, not incidental: this workflow uses
+      # `aec.review.code_compliance`, which lives in the first-party plugin, and
+      # ADR-0008 makes an unconsented plugin unloadable even when it declares no
+      # permissions. A runner has no consent dialog, so the grant is made here
+      # where it is reviewable in the diff. If this flag were ever unnecessary,
+      # that would mean consent had stopped being enforced.
       - name: Headless CLI integration run
-        run: pnpm cli run packages/app/resources/concept-compliance.archspace.yaml
+        run: pnpm cli run packages/app/resources/concept-compliance.archspace.yaml --trust-plugin aec-review

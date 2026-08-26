@@ -16,7 +16,12 @@ import { createMemoryAssetStore, createNodeRegistry, type NodeModule, type NodeR
 import { registerCoreNodes } from '@archspace/nodes-core';
 import { createAiGateway, type ArchspaceAiGateway } from '@archspace/ai-gateway';
 import { createMcpHost, type McpHost } from '@archspace/mcp-host';
-import { createPluginHost, type PluginHost, type PluginProcess } from '@archspace/plugin-host';
+import {
+  createPluginHost,
+  type PluginConsentState,
+  type PluginHost,
+  type PluginProcess,
+} from '@archspace/plugin-host';
 import { mcpSupportCheck } from '@archspace/autodesk';
 import { cliSecrets, cliStrictSecrets, loadCliConfig, workspacePluginsDir, type CliConfig } from './config.js';
 
@@ -37,11 +42,70 @@ export interface RuntimeOptions {
   noPlugins?: boolean;
   /** Verbosity for engine-side logs from MCP and plugin hosts. */
   verbose?: boolean;
+  /**
+   * Plugin ids to consent to for this invocation only (`--trust-plugin`).
+   *
+   * Consent is a decision a human makes, and ADR-0008 keeps it that way even
+   * for a plugin declaring no permissions: "this code may run" is the first
+   * decision. A headless run has no dialog to show, so the decision moves to
+   * the command line — an operator typing the id *is* the consent, and CI's
+   * checked-in workflow file is where that grant is reviewed.
+   *
+   * It is deliberately not persisted. Writing to `plugins.json` would let a
+   * CI job silently widen what the desktop app trusts afterwards; the app's
+   * consent store stays the only durable record.
+   */
+  trustPlugins?: readonly string[];
 }
 
 /** The plugin child entry, resolved from this package rather than guessed. */
 function pluginChildEntry(): string {
   return fileURLToPath(new URL('../../plugin-host/src/child.ts', import.meta.url));
+}
+
+/**
+ * Apply `--trust-plugin` grants on top of whatever `plugins.json` already said.
+ *
+ * This runs *after* `discover()` on purpose. A grant is for the permissions the
+ * plugin actually declares, and only a discovered plugin has a parsed manifest
+ * to read them from — granting a name blind would mean either inventing a
+ * permission set or handing over a blanket one, and a blanket grant is exactly
+ * the thing ADR-0008 §2 says a permission list exists to prevent.
+ *
+ * Every grant is printed unconditionally, not through `log` (which swallows
+ * info unless `--verbose`). A security decision that only shows up in verbose
+ * mode is a security decision nobody reads.
+ */
+async function trustNamedPlugins(
+  plugins: PluginHost,
+  existing: CliConfig['pluginConsent'],
+  ids: readonly string[],
+  log: (level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown) => void,
+): Promise<void> {
+  if (ids.length === 0) return;
+
+  const installed = new Map(plugins.list().map((info) => [info.id, info]));
+  const consent: PluginConsentState = {};
+  for (const [id, entry] of Object.entries(existing)) {
+    consent[id] = { enabled: entry.enabled, permissions: [...entry.permissions] };
+  }
+
+  for (const id of ids) {
+    const info = installed.get(id);
+    if (!info) {
+      log('warn', `--trust-plugin "${id}": no such plugin is installed; ignoring`);
+      continue;
+    }
+    const permissions = [...info.manifest.permissions];
+    consent[id] = { enabled: true, permissions };
+    console.log(
+      `  trusting plugin "${id}" for this run — permissions granted: ${
+        permissions.length === 0 ? '(none declared)' : permissions.join(', ')
+      }`,
+    );
+  }
+
+  await plugins.setConsent(consent);
 }
 
 export async function createRuntime(options: RuntimeOptions = {}): Promise<Runtime> {
@@ -103,6 +167,7 @@ export async function createRuntime(options: RuntimeOptions = {}): Promise<Runti
       },
     });
     await plugins.discover();
+    await trustNamedPlugins(plugins, config.pluginConsent, options.trustPlugins ?? [], log);
   }
 
   const registry = createNodeRegistry();

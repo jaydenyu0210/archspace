@@ -23,7 +23,7 @@ import {
 import { applyAssignability, assignable, isValueOfType, parsePortType } from '@archspace/types';
 import { canonicalJson, hashValue } from './canonical';
 import { createRunCache, type RunCache } from './cache';
-import { edgeLabel, type EngineEdgeSpec, type EngineGraph, type EngineNodeSpec } from './graph';
+import { edgeLabel, type EngineEdgeSpec, type EngineGraph } from './graph';
 import { outputPreviews, type OutputPreview } from './preview';
 import { createRealSchedulerHooks, type SchedulerHooks } from './scheduler';
 import { GraphValidationError, validateGraph, type ValidationIssue } from './validate';
