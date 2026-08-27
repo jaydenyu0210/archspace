@@ -34,7 +34,11 @@ import { fileURLToPath } from 'node:url';
 
 const APP = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 9222;
+const MAIN_INSPECT_PORT = 9229;
 const DEADLINE_MS = 40_000;
+
+/** The four settings tabs, and the menu action that opens each. */
+const SETTINGS_TABS = ['mcp', 'ai', 'plugins', 'autodesk'];
 
 /**
  * Refuse to run if something is already listening. Without this the script
@@ -58,7 +62,14 @@ try {
 
 const child = spawn(
   join(APP, 'node_modules/.bin/electron'),
-  [join(APP, 'out/main/index.js'), `--remote-debugging-port=${PORT}`],
+  [
+    join(APP, 'out/main/index.js'),
+    `--remote-debugging-port=${PORT}`,
+    // The settings dialog opens from the native menu, which only main can
+    // trigger. Inspecting main is how this drives it without a test-only hook
+    // in the app itself.
+    `--inspect=${MAIN_INSPECT_PORT}`,
+  ],
   { cwd: APP, stdio: ['ignore', 'pipe', 'pipe'] },
 );
 let electronOutput = '';
@@ -127,6 +138,62 @@ for (let attempt = 0; attempt < 25 && ui?.wordmark == null; attempt++) {
   if (typeof value === 'string') ui = JSON.parse(value);
 }
 
+/** Evaluate in the renderer and return the parsed JSON string it produced. */
+async function evaluate(socket, id, expression) {
+  socket.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, returnByValue: true } }));
+  const reply = await new Promise((r) => {
+    const on = (m) => {
+      const msg = JSON.parse(m.data);
+      if (msg.id === id) {
+        socket.removeEventListener('message', on);
+        r(msg);
+      }
+    };
+    socket.addEventListener('message', on);
+  });
+  const value = reply.result?.result?.value;
+  return typeof value === 'string' ? JSON.parse(value) : null;
+}
+
+/**
+ * Open each settings tab and confirm it drew something.
+ *
+ * These four panels are the largest surface in the app and the one no unit test
+ * can reach: they are only reachable through a native menu item, and their
+ * content comes from live engine state. An unstable selector in any of them
+ * fails exactly the way Inspector's did — a blank panel and no error — so
+ * "did it render" is the assertion worth making.
+ */
+const mainTargets = await (await fetch(`http://127.0.0.1:${MAIN_INSPECT_PORT}/json`)).json();
+const mainWs = new WebSocket(mainTargets[0].webSocketDebuggerUrl);
+await new Promise((r) => mainWs.addEventListener('open', r));
+
+const panels = [];
+for (const [i, tab] of SETTINGS_TABS.entries()) {
+  mainWs.send(JSON.stringify({
+    id: 500 + i,
+    method: 'Runtime.evaluate',
+    params: {
+      expression: `require('electron').BrowserWindow.getAllWindows()[0].webContents.send('menu','settings-${tab}'), 'ok'`,
+      includeCommandLineAPI: true,
+    },
+  }));
+  await new Promise((r) => setTimeout(r, 900));
+  const seen = await evaluate(ws, 600 + i, `JSON.stringify({
+    open: !!document.querySelector('[role=dialog]'),
+    active: document.querySelector('[role=tab][aria-selected=true]')?.innerText ?? null,
+    chars: document.querySelector('.settings-panel')?.innerText?.length ?? 0,
+    stub: /not built yet/i.test(document.querySelector('.settings-panel')?.innerText ?? ''),
+  })`);
+  if (!seen?.open) fail(`the settings dialog did not open on the "${tab}" tab`);
+  if (seen.stub) fail(`the "${tab}" panel is still a stub`);
+  // A rendered panel is well over a screenful; a blank one is zero. The
+  // threshold only has to separate those two, not measure anything.
+  if (seen.chars < 200) fail(`the "${tab}" panel rendered ${seen.chars} characters — effectively blank`);
+  panels.push(`${tab}:${seen.chars}`);
+}
+mainWs.close();
+
 ws.close();
 child.kill('SIGTERM');
 
@@ -140,4 +207,7 @@ if (ui.nodeTypes === 0) {
   fail('the node palette is empty — main did not spawn the engine child, or it never delivered its manifests');
 }
 
-console.log(`smoke: UI rendered — ${ui.panels.length} panels, ${ui.nodeTypes} node types in the palette`);
+console.log(
+  `smoke: UI rendered — ${ui.panels.length} panels, ${ui.nodeTypes} node types in the palette\n` +
+    `       settings tabs rendered — ${panels.join(', ')} (characters)`,
+);
