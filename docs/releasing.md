@@ -389,25 +389,45 @@ even though the token is gone. It still **hard-fails** a signed tag build if a
 placeholder ever reappears, and **warns** on any other run. It costs nothing and
 it is the check that stops a release which can never receive an update.
 
-**Verify `electron-updater` actually made it into the app.** This workspace
-installs with pnpm, whose `node_modules` is a tree of symlinks, and
-electron-builder is known to under-collect production dependencies from that
-layout. `electron-updater` is external in the main bundle (electron-vite leaves
-it as a runtime `import`), so a miss here means no auto-update. It will not
-crash the app — `updates.ts` imports it dynamically inside a try/catch for
-exactly this reason — but it will fail silently apart from one log line. After
-`pnpm dist`, check:
+### What an unsigned `pnpm dist` has actually been shown to do
 
-```
-ls "packages/app/dist/mac-universal/Archspace.app/Contents/Resources/app.asar.unpacked/node_modules/electron-updater" \
-  || npx asar list packages/app/dist/mac-universal/Archspace.app/Contents/Resources/app.asar | grep electron-updater
-```
+Run on 2026-08-26, macOS, no signing identity present. Everything in this list
+was observed, not reasoned about:
 
-If it is absent, add a root `.npmrc` with `node-linker=hoisted` and reinstall.
-That changes the layout the whole workspace installs into, so re-run the full
-CI gate afterwards rather than assuming it is inert.
+- **It builds.** `dist/Archspace-0.1.0-universal.dmg` and the matching `.zip`
+  (~233 MB each), plus their blockmaps, universal (arm64 + x64).
+- **Signing degrades honestly.** electron-builder reports
+  `skipped macOS application code signing … 0 identities found` and carries on.
+  A fork with no certificate gets an unsigned build, not a confusing failure.
+- **`electron-updater` is collected** — 38 entries inside `app.asar`. The worry
+  that pnpm's symlinked `node_modules` would defeat electron-builder was
+  unfounded. (`updates.ts` still imports it dynamically inside a try/catch, so
+  a future miss degrades to "no auto-update" rather than a crash on launch.)
+- **`app-update.yml` carries the real coordinates**, `jaydenyu0210/archspace`.
+- **extraResources ship**: all three `*.archspace.yaml` examples under
+  `Contents/Resources/resources`, and the first-party plugin with its built
+  `dist/` under `Contents/Resources/plugins`.
+- **`icon.icns` is in the bundle.**
+- **The packaged app launches and works.** Driven over the DevTools Protocol:
+  the shell renders (toolbar, library, canvas, inspector), the palette holds
+  18 node types — which only happens if main spawned the engine child and the
+  two agreed over a MessagePort — and it opens the bundled example by name,
+  "Concept compliance check", six nodes on the canvas, no error notices.
 
-A local `pnpm dist` has no such guard.
+### What is still unproven
+
+Everything that needs credentials or a published release, which is to say the
+entire second half of this document:
+
+- No `codesign`, no `notarytool`, no stapling, no `spctl -a` on a clean
+  machine — there is no Developer ID identity here.
+- No tag has been pushed, so `release.yml` has never run.
+- Auto-update has never fetched anything. The feed is real but the repository
+  is private, and a Releases feed is only anonymously readable from a public
+  one.
+
+So: the packaging is verified, the *release* is not. The first tag will be the
+first time the signing half of this file is exercised.
 
 **The app icon is generated, not drawn.** `build/make-icon.py` renders
 `icon.png` and `icon.icns`, and `mac.icon` points at the `.icns`. Both artifacts

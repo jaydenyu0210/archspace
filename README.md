@@ -343,8 +343,9 @@ documents, which is a seam masquerading as a feature.
 | The plugin boundary those seven nodes ride on | **Real** — a genuine separate OS process, install-time consent, capability RPC, crash containment |
 | Autodesk / Revit / APS | **Not implemented** — see above |
 | 3D / IFC preview (three.js + web-ifc, [ADR-0003](docs/adr/0003-frontend-and-canvas.md)) | **Not built.** Designed, dependencies not even installed |
-| Signed release, Homebrew cask | **Not published yet.** The workflow exists; no tag has run it |
-| Auto-update | **Wired, unproven.** Reads the GitHub Releases feed on launch; no release has ever exercised it, and a private repo's feed is not anonymously readable |
+| macOS packaging (`pnpm dist`) | **Real, and verified.** Produces a universal .dmg and .zip; the packaged app launches, renders, and opens the bundled example. Unsigned unless a Developer ID identity is present — see [docs/releasing.md](docs/releasing.md) §8 for exactly what was observed |
+| Signing, notarization, Homebrew cask | **Not done.** No Developer ID identity, no tag pushed, so `release.yml` has never run |
+| Auto-update | **Wired, unproven.** Reads the GitHub Releases feed on launch and ships in the bundle; no release has ever exercised it, and a private repo's feed is not anonymously readable |
 | Windows / Linux packaging | **Deferred by decision** (ADR-0001); no package imports platform code |
 
 The mock nodes' output shapes are the contract, not a sketch:
@@ -357,19 +358,22 @@ inspector display.
 
 ### Known gaps in the repo itself
 
-- **A few suites are still red**, in `ai-gateway`, `mcp-host` and `cli` — each
-  a newly written test that found a genuine edge case the source does not
-  handle yet, not a broken build. Run the suites package by package to see
-  what is actually failing.
+- **The app is not signed or notarized**, so a first launch needs
+  right-click → Open. `pnpm dist` itself works and the packaged app runs; only
+  the signing half is unexercised (docs/releasing.md §8).
 - One structural trap worth knowing before you go bug-hunting: `pnpm test` is
-  `pnpm -r run test`, every package but `packages/app` declares
-  `"test": "vitest run"`, and **Vitest exits non-zero when a package has no
-  test files at all** — so a new package without a suite reds the whole
-  command with nothing actually failing an assertion.
+  `pnpm -r run test`, every package declares `"test": "vitest run"`, and
+  **Vitest exits non-zero when a package has no test files at all** — so a new
+  package without a suite reds the whole command with nothing actually failing
+  an assertion.
+- **CI does not launch Electron**, which is how two launch-blocking bugs once
+  shipped past a fully green run. `pnpm --filter @archspace/app smoke` closes
+  part of that gap by hand; see [CONTRIBUTING](CONTRIBUTING.md) §3a.
+- **Param promotion is specified but unbuilt.** ARCHITECTURE §5.1 and §9.3 say
+  a param marked `promotable` can be exposed as an input port, and MCP params
+  already carry the flag — but the document format has no field to persist the
+  choice, so this needs an ADR before it needs code.
 - No 3D/IFC preview and no published release — see the status table above.
-  Auto-update is now wired (`packages/app/src/main/updates.ts`) but has never
-  run against a real release, and cannot reach anyone while this repository is
-  private: an update feed is only readable anonymously from a public repo.
 
 ---
 
