@@ -85,8 +85,14 @@ export function recordFetch(respond: (call: RecordedCall) => Response): FetchRec
     calls,
     urls: () => calls.map((c) => c.url),
     single: () => {
-      if (calls.length !== 1) throw new Error(`expected exactly one request, saw ${calls.length}`);
-      return calls[0];
+      // Destructured rather than indexed, so the "exactly one" check is also
+      // what proves the element exists — one branch instead of a length test
+      // followed by an index the compiler cannot connect to it.
+      const [only, ...rest] = calls;
+      if (only === undefined || rest.length > 0) {
+        throw new Error(`expected exactly one request, saw ${calls.length}`);
+      }
+      return only;
     },
   };
 }

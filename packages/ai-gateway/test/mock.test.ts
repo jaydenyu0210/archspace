@@ -281,6 +281,12 @@ describe('mockObject synthesises a value that satisfies the schema', () => {
 describe('mockEmbeddings', () => {
   it('returns unit-length vectors of fixed width, byte-identical every run', () => {
     const [alpha, beta] = mockEmbeddings('mock-embed', ['alpha', 'beta']);
+    // Asserted rather than assumed: two inputs must yield two vectors, and if
+    // that ever stops being true this should say so here rather than fail
+    // further down with a confusing read of undefined.
+    expect(alpha).toBeDefined();
+    expect(beta).toBeDefined();
+    if (alpha === undefined || beta === undefined) throw new Error('mockEmbeddings returned fewer vectors than inputs');
 
     expect(alpha).toHaveLength(16);
     expect(alpha).toEqual([

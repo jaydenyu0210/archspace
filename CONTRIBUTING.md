@@ -244,9 +244,28 @@ findings here and **nearly all are correct defensive code** — `arr[0]`,
 are right and the types are wrong: `noUncheckedIndexedAccess` is off, so an
 index claims to return a value it may not have, and the rule believes it. Do
 not "fix" those findings by deleting the checks. Enabling
-`noUncheckedIndexedAccess` is the real fix and is worth doing — it was measured
-at 648 compiler errors across twelve packages on 2026-08-26, so it is a
-migration to schedule rather than a flag to flip.
+`noUncheckedIndexedAccess` is the real fix and is worth doing. It is 648
+compiler errors across twelve packages (measured 2026-08-26), so it is being
+done **per package**, not repo-wide: a package's own `tsconfig.json` turns the
+flag on once that package is clean.
+
+Done: `types`, `node-sdk`, `ai-gateway`. Remaining, with the error counts from
+that measurement — `aec-review` 190, `cli` 68, `engine` 67, `app` 67,
+`plugin-host` 62, `mcp-host` 55, `nodes-core` 43, `document` 35, `autodesk` 30.
+
+Two things learned on the first three, both of which cost time:
+
+- **Most of it is not bugs.** Nearly every error is correct code the compiler
+  cannot prove — a regex group a match guarantees, `segments[0]` after a
+  `split`, an index taken from `findIndex`. The fix that reads best lets the
+  impossible case fall into the function's *existing* contract rather than
+  assert: `parsePortType` already answers null for anything invalid, so an
+  unreachable `return null` is free and says where the guarantee comes from.
+- **Do not bulk-rewrite `x[0].y` into `x[0]?.y`.** It is illegal on the
+  left-hand side of an assignment, and in an expression like
+  `word[0]?.toUpperCase() + word.slice(1)` it silently turns a throw into the
+  string `"undefinedxyz"`. A script can find the sites; each fix is a
+  judgement.
 
 If you want to see what the presets say, it is one command:
 

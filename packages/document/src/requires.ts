@@ -55,9 +55,13 @@ export function deriveRequires(nodes: DocNode[], options: DeriveRequiresOptions 
 
   for (const node of nodes) {
     const segments = node.type.split('.');
-    const first = segments[0];
+    // `?? ''` rather than a guard: `split` always yields at least one element,
+    // and an empty segment already means "not a namespace we recognise" to
+    // every test below, so the impossible case needs no separate branch.
+    const first = segments[0] ?? '';
     if (first === 'mcp') {
-      if (segments.length > 1 && segments[1] !== '') mcp.add(segments[1]);
+      const server = segments[1] ?? '';
+      if (server !== '') mcp.add(server);
     } else if (first === 'ai') {
       // Only a string names a profile. `config` is Record<string, unknown>
       // and hand-editable, so anything else — a mapping a user mistyped, a

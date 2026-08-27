@@ -68,7 +68,7 @@ describe('defaultAiConfig', () => {
     const config = defaultAiConfig();
     expect(config.profiles.map((p) => p.provider)).toEqual(['anthropic', 'ollama']);
     // The cloud one ships unbound: a suggestion, not an activation.
-    expect(config.profiles[0].apiKeyRef).toBe('ai.anthropic.api_key');
+    expect(config.profiles[0]?.apiKeyRef).toBe('ai.anthropic.api_key');
     expect(config.defaultProfile).toBe('default');
   });
 
@@ -86,7 +86,7 @@ describe('round trip', () => {
 
   it('keeps a temperature of 0 — the classic falsy-value round trip', () => {
     const parsed = parseAiConfig(serializeAiConfig(RICH));
-    expect(parsed.config.profiles[0].temperature).toBe(0);
+    expect(parsed.config.profiles[0]?.temperature).toBe(0);
   });
 
   it('is canonical: serializing twice produces identical bytes', () => {
@@ -157,12 +157,12 @@ describe('malformed input reports rather than throws', () => {
     const parsed = parseAiConfig(text);
 
     expect(parsed.issues).toHaveLength(1);
-    expect(parsed.issues[0].severity).toBe('error');
-    expect(parsed.issues[0].path).toBe(AI_CONFIG_FILENAME);
-    expect(parsed.issues[0].message).toContain(expected);
-    expect(parsed.issues[0].message).toMatch(/^line \d+: /);
+    expect(parsed.issues[0]?.severity).toBe('error');
+    expect(parsed.issues[0]?.path).toBe(AI_CONFIG_FILENAME);
+    expect(parsed.issues[0]?.message).toContain(expected);
+    expect(parsed.issues[0]?.message).toMatch(/^line \d+: /);
     // The user's file is not rewritten and the session still has an AI.
-    expect(parsed.issues[0].message).toContain('The file was left untouched');
+    expect(parsed.issues[0]?.message).toContain('The file was left untouched');
     expect(parsed.config).toEqual(defaultAiConfig());
   });
 
@@ -243,7 +243,7 @@ describe('validation keeps a broken profile and says what is wrong with it', () 
 
     expect(config.profiles.map((p) => p.name)).toEqual(['keeper']);
     expect(errorsOf(issues).map((i) => i.path)).toEqual(['profiles[0].name', 'profiles[1].provider', 'profiles[2]']);
-    expect(issues[1].message).toContain('expected one of anthropic, ollama, openai-compatible, mock');
+    expect(issues[1]?.message).toContain('expected one of anthropic, ollama, openai-compatible, mock');
   });
 
   it('ignores the later of two profiles with the same name', () => {
@@ -268,7 +268,7 @@ describe('validation keeps a broken profile and says what is wrong with it', () 
       defaultProfile: 'a',
       profiles: [{ name: 'a', provider: 'openai-compatible', model: 'm', baseUrl: 'http://box:8000/v1///' }],
     });
-    expect(config.profiles[0].baseUrl).toBe('http://box:8000/v1');
+    expect(config.profiles[0]?.baseUrl).toBe('http://box:8000/v1');
   });
 
   it('requires an endpoint from the provider that has no default', () => {
@@ -290,7 +290,7 @@ describe('validation keeps a broken profile and says what is wrong with it', () 
       defaultProfile: 'Fast Draft',
       profiles: [{ name: 'Fast Draft', provider: 'mock', model: 'mock-small' }],
     });
-    expect(config.profiles[0].name).toBe('Fast Draft');
+    expect(config.profiles[0]?.name).toBe('Fast Draft');
     expect(issues).toEqual([
       {
         severity: 'warning',
@@ -334,7 +334,7 @@ describe('a profile carries a secret key, never a secret value', () => {
       profiles: [{ name: 'a', provider: 'anthropic', model: 'm', apiKeyRef: credential }],
     });
 
-    expect(config.profiles[0].apiKeyRef).toBeUndefined();
+    expect(config.profiles[0]?.apiKeyRef).toBeUndefined();
     expect(issues).toContainEqual({
       severity: 'error',
       path: 'profiles[0].apiKeyRef',
@@ -351,7 +351,7 @@ describe('a profile carries a secret key, never a secret value', () => {
       profiles: [{ name: 'a', provider: 'ollama', model: 'm', headers: { Authorization: 'sk-ant-api03-not-a-real-key' } }],
     });
 
-    expect(config.profiles[0].headers).toBeUndefined();
+    expect(config.profiles[0]?.headers).toBeUndefined();
     expect(issues).toContainEqual({
       severity: 'error',
       path: 'profiles[0].headers.Authorization',
@@ -364,7 +364,7 @@ describe('a profile carries a secret key, never a secret value', () => {
       defaultProfile: 'a',
       profiles: [{ name: 'a', provider: 'anthropic', model: 'm', apiKeyRef: 'ai.anthropic.api_key' }],
     });
-    expect(config.profiles[0].apiKeyRef).toBe('ai.anthropic.api_key');
+    expect(config.profiles[0]?.apiKeyRef).toBe('ai.anthropic.api_key');
     expect(issues).toEqual([]);
   });
 

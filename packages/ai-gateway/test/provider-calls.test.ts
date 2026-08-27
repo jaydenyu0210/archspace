@@ -125,7 +125,7 @@ describe('base-URL binding', () => {
 
     expect(net.urls()).toEqual(['http://box:11434/v1/chat/completions', 'http://box:8000/v1/chat/completions']);
     // Same body shape from both: one integration, two catalogue entries.
-    expect(net.calls[0].body.messages).toEqual(net.calls[1].body.messages);
+    expect(net.calls[0]?.body.messages).toEqual(net.calls[1]?.body.messages);
   });
 });
 
@@ -202,8 +202,8 @@ describe('request shaping', () => {
     await gateway.generateText({ prompt: 'x' });
     await gateway.probe('cloud');
 
-    expect(net.calls[0].body.max_tokens).toBe(4096);
-    expect(net.calls[1].body.max_tokens).toBe(16);
+    expect(net.calls[0]?.body.max_tokens).toBe(4096);
+    expect(net.calls[1]?.body.max_tokens).toBe(16);
   });
 });
 

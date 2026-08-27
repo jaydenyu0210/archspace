@@ -170,7 +170,9 @@ export function saveWorkflow(
     const survivors = base.nodes.filter((n) => docIds.has(n.id));
     if (nodesSeq !== undefined) {
       for (let i = base.nodes.length - 1; i >= 0; i--) {
-        if (!docIds.has(base.nodes[i].id)) {
+        const existing = base.nodes[i];
+        if (existing === undefined) continue;
+        if (!docIds.has(existing.id)) {
           nodesSeq.items.splice(i, 1);
           touch();
         }
@@ -183,7 +185,9 @@ export function saveWorkflow(
       if (bi < 0) continue; // new node; appended below
       const bn = survivors[bi];
       const item = nodesSeq?.items[bi];
-      if (item === undefined || !isMap(item)) continue; // defensive; extraction guarantees a map
+      // `bn` cannot be missing — `bi` came from findIndex — but folding it in
+      // here costs nothing and keeps the guarantee next to the read.
+      if (bn === undefined || item === undefined || !isMap(item)) continue; // defensive; extraction guarantees a map
       const nodeMap = item as unknown as YAMLMap;
       if (dn.type !== bn.type) {
         mapSet(ydoc, nodeMap, 'type', dn.type, NODE_ORDER);

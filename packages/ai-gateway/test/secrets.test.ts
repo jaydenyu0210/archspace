@@ -92,7 +92,7 @@ describe('nothing the gateway hands back carries the key', () => {
     const statuses = await gateway.listProfiles();
 
     // The ref name is the whole point — it is a pointer, not a credential.
-    expect(statuses[0].apiKeyRef).toBe('ai.anthropic.api_key');
+    expect(statuses[0]?.apiKeyRef).toBe('ai.anthropic.api_key');
     expect(JSON.stringify(statuses)).not.toContain(CANARY);
   });
 
@@ -191,7 +191,7 @@ describe('nothing written back to disk carries the key', () => {
 
     const parsed = parseAiConfig(pasted);
 
-    expect(parsed.config.profiles[0].apiKeyRef).toBeUndefined();
+    expect(parsed.config.profiles[0]?.apiKeyRef).toBeUndefined();
     expect(serializeAiConfig(parsed.config)).not.toContain(CANARY);
     expect(JSON.stringify(parsed.issues)).not.toContain(CANARY);
   });
@@ -252,7 +252,7 @@ describe('the keychain is the only source of a key', () => {
       name: 'AiProfileError',
       reason: 'missing-key',
     });
-    expect((await gateway.listProfiles())[0].readiness).toBe('missing-key');
+    expect((await gateway.listProfiles())[0]?.readiness).toBe('missing-key');
   });
 
   it('asks the keychain for the ref the profile names, and for nothing else', async () => {

@@ -35,7 +35,13 @@ export function parsePortType(input: string): ParsedType | null {
 
   const generic = /^([a-z][a-z0-9_]*)<(.+)>$/.exec(s);
   if (generic) {
-    const [, head, inner] = generic;
+    // Both groups are non-optional, so a match guarantees them — but the type
+    // cannot say so, and `?? ''` is better than asserting: an empty head
+    // matches neither branch and an empty inner fails to parse, so the
+    // impossible case degrades into this function's existing "not a valid type
+    // expression" answer rather than into a crash.
+    const head = generic[1] ?? '';
+    const inner = generic[2] ?? '';
     if (head === 'list') {
       const item = parsePortType(inner);
       return item ? { kind: 'list', item } : null;
@@ -50,7 +56,12 @@ export function parsePortType(input: string): ParsedType | null {
   // Plugin nominal type: <namespace>.<name>, namespace itself may be dotted.
   const segments = s.split('.');
   if (segments.length >= 2 && segments.every((seg) => IDENT.test(seg))) {
-    return { kind: 'plugin', namespace: segments.slice(0, -1).join('.'), name: segments[segments.length - 1] };
+    // `length >= 2` makes this present; falling through to null if it somehow
+    // is not costs nothing and keeps the guarantee local to the read.
+    const name = segments[segments.length - 1];
+    if (name !== undefined) {
+      return { kind: 'plugin', namespace: segments.slice(0, -1).join('.'), name };
+    }
   }
   return null;
 }

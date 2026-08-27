@@ -13,9 +13,18 @@ const EDGE_RE =
 export function parseEdge(s: string): DocEdge | null {
   const m = EDGE_RE.exec(s);
   if (!m) return null;
+  // All four groups are non-optional, so a match guarantees them — but the type
+  // cannot say so, and unlike a type expression there is no harmless empty
+  // value to fall back to: an edge with a blank node id is not an edge. Falling
+  // through to null keeps the impossible case inside this function's existing
+  // "not a valid edge" answer.
+  const [, fromNode, fromPort, toNode, toPort] = m;
+  if (fromNode === undefined || fromPort === undefined || toNode === undefined || toPort === undefined) {
+    return null;
+  }
   return {
-    from: { node: m[1], port: m[2] },
-    to: { node: m[3], port: m[4] },
+    from: { node: fromNode, port: fromPort },
+    to: { node: toNode, port: toPort },
   };
 }
 
