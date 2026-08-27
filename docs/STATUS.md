@@ -52,6 +52,7 @@ documents, which is a seam masquerading as a feature.
 | Execution engine (lanes, memoization, cancel, retry, partial failure, events) | **Real**, deterministic-mode tested |
 | CLI (`run`, `nodes`, `plugins`, `mcp`, `ai`, `doctor`) | **Real** |
 | Electron shell: canvas, palette, JSON-Schema inspector, live run log, open/save | **Real** |
+| Getting produced files out — **Save…** on any asset in the run panel, `archspace run --out <dir>` headless | **Real**, and covered end to end: the smoke test clicks Save in the packaged app and checks the bytes that land on disk. Bulk data never enters the renderer (§7.6) — it asks main to save an `AssetRef`, and main reads the bytes from the engine over its own channel |
 | Plugin host: manifest, consent, one process per plugin, crash containment | **Real** |
 | MCP host: official SDK, stdio + Streamable HTTP, OAuth 2.1, tools → nodes | **Real** code; not yet exercised against a live Revit server |
 | AI gateway: profiles, Anthropic / Ollama / OpenAI-compatible / mock | **Real** — calls the provider your profile names |

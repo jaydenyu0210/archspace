@@ -46,6 +46,8 @@ const bridge: ArchspaceBridge = {
   autodeskPresets: () => ipcRenderer.invoke('autodesk:presets'),
 
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
+
+  saveAsset: (ref) => ipcRenderer.invoke('asset:save', ref),
 };
 
 contextBridge.exposeInMainWorld('archspace', bridge);

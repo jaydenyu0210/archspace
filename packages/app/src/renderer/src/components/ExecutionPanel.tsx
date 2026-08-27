@@ -14,9 +14,10 @@
  * because the wire-value invariant (§8.1) means large output is an `AssetRef`
  * and the panel must never look like it is showing the whole of something.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import type { RunEvent, OutputPreview } from '@archspace/engine';
+import type { AssetRef } from '@archspace/node-sdk';
 
 function eventLine(e: RunEvent, startedAt: number | null, nodeLabel: (id: string) => string): string | null {
   const t = startedAt ? `+${((e.at - startedAt) / 1000).toFixed(2)}s` : '';
@@ -58,6 +59,62 @@ function eventClass(e: RunEvent): string {
   }
 }
 
+/**
+ * The asset card, with the one button that turns a produced file into a file.
+ *
+ * The bytes are not here and never will be — `AssetRef` is a hash, a size and a
+ * name, and main reads the actual data from the engine (§7.6). So this is the
+ * whole of the renderer's involvement in saving: hand back the ref it was
+ * already given, and report what happened.
+ *
+ * The outcome is shown in place rather than in a toast, because the thing the
+ * user wants next is the path they just wrote to.
+ */
+function AssetPreview({ asset }: { asset: AssetRef }) {
+  const [state, setState] = useState<
+    { t: 'idle' } | { t: 'saving' } | { t: 'saved'; path: string } | { t: 'error'; message: string }
+  >({ t: 'idle' });
+
+  const onSave = async (): Promise<void> => {
+    setState({ t: 'saving' });
+    try {
+      const result = await window.archspace.saveAsset(asset);
+      if (result.ok) setState({ t: 'saved', path: result.path });
+      // A cancelled dialog is not a failure and must not read like one.
+      else if ('cancelled' in result) setState({ t: 'idle' });
+      else setState({ t: 'error', message: result.error });
+    } catch (err) {
+      setState({ t: 'error', message: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  return (
+    <div className="preview-asset">
+      <div className="asset-head">
+        <div>
+          <div className="asset-name">{asset.name ?? 'asset'}</div>
+          <div className="asset-meta mono">
+            {asset.mediaType} · {(asset.size / 1024).toFixed(1)} KB
+          </div>
+        </div>
+        <button
+          type="button"
+          className="asset-save"
+          onClick={() => void onSave()}
+          disabled={state.t === 'saving'}
+        >
+          {state.t === 'saving' ? 'Saving…' : 'Save…'}
+        </button>
+      </div>
+      <div className="asset-hash mono" title={asset.hash}>{asset.hash.slice(0, 24)}…</div>
+      {state.t === 'saved' && (
+        <div className="asset-saved" title={state.path}>Saved to {state.path}</div>
+      )}
+      {state.t === 'error' && <div className="asset-error">{state.message}</div>}
+    </div>
+  );
+}
+
 function PreviewBlock({ preview }: { preview: OutputPreview }) {
   const p = preview.preview;
   return (
@@ -88,15 +145,7 @@ function PreviewBlock({ preview }: { preview: OutputPreview }) {
           )}
         </div>
       )}
-      {p.kind === 'asset' && (
-        <div className="preview-asset">
-          <div className="asset-name">{p.ref.name ?? 'asset'}</div>
-          <div className="asset-meta mono">
-            {p.ref.mediaType} · {(p.ref.size / 1024).toFixed(1)} KB
-          </div>
-          <div className="asset-hash mono" title={p.ref.hash}>{p.ref.hash.slice(0, 24)}…</div>
-        </div>
-      )}
+      {p.kind === 'asset' && <AssetPreview asset={p.ref} />}
       {p.kind === 'empty' && <div className="preview-note">no value</div>}
     </div>
   );

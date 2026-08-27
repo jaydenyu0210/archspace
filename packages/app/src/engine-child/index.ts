@@ -428,6 +428,22 @@ async function handleControlMessage(msg: EngineControlRequest): Promise<void> {
       break;
     }
 
+    case 'asset-read': {
+      // The store is this process's; main has no other way to reach it.
+      try {
+        const bytes = await assets.bytes(msg.ref);
+        toMain({ t: 'asset-data', requestId: msg.requestId, ok: true, bytes });
+      } catch (err) {
+        toMain({
+          t: 'asset-data',
+          requestId: msg.requestId,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      break;
+    }
+
     case 'secret-result':
       settleControl(msg.requestId, msg.value, msg.error);
       break;

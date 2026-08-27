@@ -1,7 +1,7 @@
 /**
  * archspace — the headless runner and the integration harness (ADR-0013).
  *
- *   archspace run <workflow.archspace.yaml> [--target <nodeId>] [--trust-plugin <id>]
+ *   archspace run <workflow.archspace.yaml> [--target <nodeId>] [--out <dir>] [--trust-plugin <id>]
  *   archspace nodes                      what node types are available here
  *   archspace plugins                    installed plugins and their state
  *   archspace mcp [--connect <name>]     configured MCP servers and their tools
@@ -14,9 +14,11 @@
  * only this machine's settings say what those resolve to (ARCHITECTURE §9.1,
  * §10), so the diagnosis has to be local and specific.
  */
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join, resolve as resolvePath } from 'node:path';
 import { parseWorkflow } from '@archspace/document';
 import { startRun, validateGraph, type EngineGraph, type RunEvent } from '@archspace/engine';
+import { assetFileName, type AssetRef, type AssetStore } from '@archspace/node-sdk';
 import { envVarForSecret } from './config.js';
 import { createRuntime, type Runtime } from './runtime.js';
 
@@ -42,12 +44,16 @@ function usage(): never {
   console.error(
     [
       'usage:',
-      '  archspace run <workflow.archspace.yaml> [--target <nodeId>] [--no-plugins] [--verbose]',
+      '  archspace run <workflow.archspace.yaml> [--target <nodeId>] [--out <dir>]',
       '  archspace nodes [--json]',
       '  archspace plugins',
       '  archspace mcp [--connect <name>]',
       '  archspace ai [--probe <profile>]',
       '  archspace doctor [<workflow.archspace.yaml>]',
+      '',
+      'run flags:',
+      '  --out <dir>             write every file the run produces into <dir>',
+      '                          (DXF drawings, IFC models, CSV tables, reports)',
       '',
       'common flags:',
       '  --config-dir <dir>      settings directory (default: the desktop app’s)',
@@ -127,7 +133,21 @@ async function cmdRun(file: string): Promise<number> {
       ...(targets.length > 0 ? { targets } : {}),
     });
     const t0 = Date.now();
-    handle.onEvent((e) => console.log(fmtEvent(e, t0)));
+
+    // Assets are collected from the run events rather than by walking outputs
+    // afterwards, because `outputPreviews` is where an AssetRef is already
+    // announced and a preview is capped precisely so nobody has to hold the
+    // bytes to know a file exists (§7.6).
+    const produced: { nodeId: string; port: string; ref: AssetRef }[] = [];
+    handle.onEvent((e) => {
+      console.log(fmtEvent(e, t0));
+      if (e.type !== 'node:succeeded') return;
+      for (const output of e.outputPreviews) {
+        if (output.preview.kind === 'asset') {
+          produced.push({ nodeId: e.nodeId, port: output.port, ref: output.preview.ref });
+        }
+      }
+    });
 
     const sigint = (): void => {
       console.error('\ncancelling…');
@@ -137,10 +157,91 @@ async function cmdRun(file: string): Promise<number> {
 
     const result = await handle.done;
     process.off('SIGINT', sigint);
+
+    const outDir = option('out');
+    if (outDir !== undefined) {
+      const written = await writeAssets(rt.assets, produced, outDir);
+      if (written === null) return 1;
+    } else if (produced.length > 0) {
+      // Saying nothing here means a run that generated a drawing looks
+      // identical to one that generated nothing.
+      const names = produced.map((a) => assetFileName(a.ref)).join(', ');
+      console.log(`\n${produced.length} file(s) produced (${names}) — pass --out <dir> to write them.`);
+    }
+
     return result.status === 'succeeded' ? 0 : 1;
   } finally {
     await rt.close();
   }
+}
+
+/**
+ * Write a run's assets into a directory, one file each.
+ *
+ * Names come from `assetFileName`, which reduces a node-supplied hint to a
+ * single safe path segment — the hint is a display string and nothing stops a
+ * node, or an MCP tool this project did not write, from putting `../` in it.
+ * The node id and port are the fallback stem, so two nodes emitting an
+ * unnamed asset do not collide; identical names from different ports still can,
+ * and are reported rather than silently overwritten.
+ *
+ * Returns null if anything failed, so the caller can exit non-zero: a run that
+ * says "succeeded" and then could not write the file the user asked for has
+ * not done what was asked.
+ */
+async function writeAssets(
+  assets: AssetStore,
+  produced: { nodeId: string; port: string; ref: AssetRef }[],
+  outDir: string,
+): Promise<string[] | null> {
+  const dir = resolvePath(outDir);
+
+  // The directory is created even when there is nothing to put in it, so
+  // `--out x` means "x exists and holds this run's files" with no exceptions.
+  // Skipping it made `archspace run --out x && ls x` fail with an ENOENT that
+  // had nothing to do with what went wrong.
+  try {
+    await mkdir(dir, { recursive: true });
+  } catch (err) {
+    console.error(`\nCould not create ${dir}: ${reason(err)}`);
+    return null;
+  }
+
+  if (produced.length === 0) {
+    console.log(`\nNo files to write to ${dir} — this run produced none.`);
+    return [];
+  }
+
+  const written: string[] = [];
+  const taken = new Set<string>();
+  let failed = false;
+
+  console.log('');
+  for (const { nodeId, port, ref } of produced) {
+    const name = assetFileName(ref, `${nodeId}.${port}`);
+    if (taken.has(name)) {
+      console.error(`  ! ${name} — two outputs claim this name; the later one was not written`);
+      failed = true;
+      continue;
+    }
+    taken.add(name);
+
+    try {
+      const bytes = await assets.bytes(ref);
+      await writeFile(join(dir, name), bytes);
+      written.push(name);
+      console.log(`  wrote ${join(dir, name)} (${(ref.size / 1024).toFixed(1)} KB, ${nodeId}.${port})`);
+    } catch (err) {
+      console.error(`  ! ${name} — ${reason(err)}`);
+      failed = true;
+    }
+  }
+
+  return failed ? null : written;
+}
+
+function reason(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /** After a validation failure, say which of `requires:` this machine lacks. */

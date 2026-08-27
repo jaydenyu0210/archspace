@@ -561,6 +561,34 @@ body {
 .asset-name { font-size: 12px; font-weight: 600; }
 .asset-meta, .asset-hash { font-size: 10px; color: var(--ink-faint); margin-top: 2px; }
 
+/* The head is the row that carries the Save button; the hash sits below it so
+   a long path can wrap without pushing the button around. */
+.asset-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+
+.asset-save {
+  flex: none;
+  background: var(--bg3);
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 3px 10px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+.asset-save:hover:not(:disabled) { color: var(--ink); border-color: var(--line-strong); }
+.asset-save:disabled { opacity: 0.4; cursor: default; }
+
+/* The path is the thing wanted next, so it wraps rather than truncating. */
+.asset-saved {
+  font-size: 10px;
+  color: var(--ok);
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.asset-error { font-size: 10px; color: var(--err); margin-top: 6px; overflow-wrap: anywhere; }
+
 /* ---- notices ------------------------------------------------------------ */
 
 .notices {

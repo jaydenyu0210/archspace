@@ -26,6 +26,7 @@ import type { WorkflowDoc } from '@archspace/document';
 import type { AiGatewayConfig } from '@archspace/ai-gateway';
 import type { McpConfig } from '@archspace/mcp-host';
 import { AUTODESK_CAPABILITIES, revitPresets } from '@archspace/autodesk';
+import { isAssetRef, type AssetRef } from '@archspace/node-sdk';
 import type {
   EngineControlEvent,
   EngineControlRequest,
@@ -33,8 +34,10 @@ import type {
   MenuAction,
   PlatformInfo,
   PluginConsentState,
+  SaveResult,
   SettingsResult,
 } from '../shared/protocol';
+import { saveAsset } from './assets';
 import { openDefault, openPath, openWithDialog, save, setPluginNamespaces } from './documents';
 import { authorize, cancelAuthorization } from './oauth';
 import { installPluginWithConsent, uninstallPlugin } from './plugins';
@@ -108,7 +111,9 @@ function spawnEngine(): void {
     controlPort = null;
     if (quitting) return;
     // Supervision: restart the engine host and tell the renderer its
-    // in-flight run (if any) is dead (§3.2).
+    // in-flight run (if any) is dead (§3.2). Anything waiting on the old
+    // process is dead with it, and must be told so rather than left hanging.
+    rejectPendingEngineCalls('the engine stopped before it could answer');
     spawnEngine();
     connectControl();
     win?.webContents.send('engine:restarted', code);
@@ -129,6 +134,66 @@ function connectControl(): void {
 
 function toEngine(msg: EngineControlRequest): void {
   controlPort?.postMessage(msg);
+}
+
+/**
+ * Requests that flow main → engine and expect an answer.
+ *
+ * Every other exchange on this channel runs the other way — the engine asks
+ * main for a secret or an OAuth token — so the pending map is small and lives
+ * here rather than in a shared helper. Reading an asset's bytes is currently
+ * the only entry.
+ */
+const enginePending = new Map<number, { resolve: (bytes: Uint8Array) => void; reject: (err: Error) => void }>();
+let engineSeq = 0;
+
+/**
+ * How long to wait for the engine to hand back an asset's bytes.
+ *
+ * Generous, because the store is in memory and the only real cost is the
+ * structured-clone copy of a file that could be tens of megabytes. But bounded,
+ * because the alternative is what a deliberately silenced engine produced in
+ * the smoke test: a Save button that spins forever and says nothing. A timeout
+ * that fires wrongly costs a retry; one that never fires costs the user their
+ * understanding of whether anything is happening.
+ */
+const ASSET_READ_TIMEOUT_MS = 30_000;
+
+function readAssetBytes(ref: AssetRef): Promise<Uint8Array> {
+  const requestId = ++engineSeq;
+  return new Promise<Uint8Array>((resolve, reject) => {
+    if (controlPort === null) {
+      reject(new Error('the engine is not running'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      enginePending.delete(requestId);
+      reject(new Error(`the engine did not answer within ${ASSET_READ_TIMEOUT_MS / 1000}s`));
+    }, ASSET_READ_TIMEOUT_MS);
+    enginePending.set(requestId, {
+      resolve: (bytes) => {
+        clearTimeout(timer);
+        resolve(bytes);
+      },
+      reject: (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    });
+    toEngine({ t: 'asset-read', requestId, ref });
+  });
+}
+
+/**
+ * Fail every in-flight engine request.
+ *
+ * Without this a save started just before the engine crashed would hang on a
+ * promise nothing can ever settle, and the Save button would stay spinning
+ * with no explanation.
+ */
+function rejectPendingEngineCalls(why: string): void {
+  for (const [, entry] of enginePending) entry.reject(new Error(why));
+  enginePending.clear();
 }
 
 async function pushConfig(): Promise<void> {
@@ -189,6 +254,15 @@ async function handleControlEvent(event: EngineControlEvent): Promise<void> {
       } catch (err) {
         toEngine({ t: 'oauth-store-result', requestId: event.requestId, ok: false, error: err instanceof Error ? err.message : String(err) });
       }
+      break;
+    }
+
+    case 'asset-data': {
+      const entry = enginePending.get(event.requestId);
+      if (entry === undefined) break;
+      enginePending.delete(event.requestId);
+      if (event.ok && event.bytes !== undefined) entry.resolve(event.bytes);
+      else entry.reject(new Error(event.error ?? 'the engine could not read that asset'));
       break;
     }
 
@@ -404,6 +478,12 @@ ipcMain.handle('plugins:set-consent', async (_e, state: PluginConsentState) => {
   } catch (err) {
     return fail(err);
   }
+});
+
+ipcMain.handle('asset:save', async (_e, ref: AssetRef): Promise<SaveResult> => {
+  if (!isAssetRef(ref)) return { ok: false, error: 'not an asset reference' };
+  if (win === null) return { ok: false, error: 'no window to show a save dialog in' };
+  return saveAsset(win, ref, readAssetBytes);
 });
 
 ipcMain.handle('autodesk:capabilities', () => AUTODESK_CAPABILITIES);

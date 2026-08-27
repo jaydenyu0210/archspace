@@ -29,7 +29,7 @@
  *     pnpm --filter @archspace/app build && pnpm --filter @archspace/app smoke
  */
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -162,8 +162,15 @@ for (let attempt = 0; attempt < 25 && ui?.wordmark == null; attempt++) {
 }
 
 /** Evaluate in the renderer and return the parsed JSON string it produced. */
-async function evaluate(socket, id, expression) {
-  socket.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, returnByValue: true } }));
+async function evaluate(socket, id, expression, { commandLineAPI = false } = {}) {
+  // `require` is only in scope for a main-process evaluation when the command
+  // line API is exposed; without it the expression throws ReferenceError and
+  // the reply comes back as a silent null.
+  socket.send(JSON.stringify({
+    id,
+    method: 'Runtime.evaluate',
+    params: { expression, returnByValue: true, includeCommandLineAPI: commandLineAPI },
+  }));
   const reply = await new Promise((r) => {
     const on = (m) => {
       const msg = JSON.parse(m.data);
@@ -174,6 +181,9 @@ async function evaluate(socket, id, expression) {
     };
     socket.addEventListener('message', on);
   });
+  if (reply.result?.exceptionDetails) {
+    fail(`evaluate #${id} threw: ${reply.result.exceptionDetails.exception?.description ?? reply.result.exceptionDetails.text}`);
+  }
   const value = reply.result?.result?.value;
   return typeof value === 'string' ? JSON.parse(value) : null;
 }
@@ -270,6 +280,75 @@ for (let i = 0; i < 40 && !run?.done; i++) {
 if (!run?.done) fail(`the run never finished; notices: ${JSON.stringify(run?.notices ?? [])}`);
 if (!/succeeded/i.test(run.final ?? '')) fail(`the run did not succeed: ${run.final ?? '(no final line)'}`);
 
+/**
+ * Saving a produced file, all the way to bytes on disk.
+ *
+ * This is the only test that can cover the chain at all: the Save button is in
+ * a sandboxed renderer, the file dialog is in main, and the bytes are in the
+ * engine child's in-memory store. Nothing else in this repository spans those
+ * three processes, and every leg of it is a wire that fails silently — a
+ * mistyped IPC channel name, a preload method that was never exposed, a
+ * control-channel case that falls through, a Uint8Array that does not survive
+ * structured clone. All of those produce a button that does nothing.
+ *
+ * The save dialog is stubbed from here rather than driven, because it is a
+ * native modal that CDP cannot reach. Stubbing it is the harness reaching into
+ * the process it launched; nothing test-shaped exists in the app itself.
+ */
+const SAVED_TO = join(USER_DATA, 'smoke-saved-output');
+await evaluate(mainWs, 900, `(() => {
+  const { dialog } = require('electron');
+  dialog.showSaveDialog = async () => ({ canceled: false, filePath: ${JSON.stringify(SAVED_TO)} });
+  return '"ok"';
+})()`, { commandLineAPI: true });
+
+// Outputs are shown for the inspected node, so the DXF exporter has to be
+// selected first — the same two clicks a user makes.
+await evaluate(ws, 901, `(() => {
+  const node = [...document.querySelectorAll('.react-flow__node')].find(n => /DXF/i.test(n.innerText));
+  if (!node) return '"no-node"';
+  node.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  node.click();
+  return '"ok"';
+})()`);
+await new Promise((r) => setTimeout(r, 600));
+
+const assets = await evaluate(ws, 902, `JSON.stringify({
+  cards: document.querySelectorAll('.preview-asset').length,
+  buttons: document.querySelectorAll('.asset-save').length,
+  names: [...document.querySelectorAll('.asset-name')].map(e => e.innerText),
+  bridge: typeof window.archspace?.saveAsset,
+})`);
+
+if (assets?.bridge !== 'function') fail(`window.archspace.saveAsset is ${assets?.bridge} — the preload bridge does not expose it`);
+if ((assets?.cards ?? 0) !== 1) fail(`expected one asset card on the DXF exporter; found ${assets?.cards ?? 0} (${JSON.stringify(assets?.names ?? [])})`);
+if (assets.buttons !== assets.cards) fail(`${assets.cards} asset cards but ${assets.buttons} save buttons`);
+
+await evaluate(ws, 903, `document.querySelector('.asset-save')?.click(), '"ok"'`);
+
+let saved = null;
+for (let i = 0; i < 15 && !saved?.done; i++) {
+  await new Promise((r) => setTimeout(r, 400));
+  saved = await evaluate(ws, 910 + i, `JSON.stringify({
+    done: !!document.querySelector('.asset-saved') || !!document.querySelector('.asset-error'),
+    path: document.querySelector('.asset-saved')?.innerText ?? null,
+    error: document.querySelector('.asset-error')?.innerText ?? null,
+  })`);
+}
+if (saved?.error) fail(`saving the asset failed in-app: ${saved.error}`);
+if (!saved?.done) fail('the Save button reported neither success nor failure — the IPC round trip never returned');
+
+// The renderer claiming success is not the same as a file existing. Read it.
+const savedBytes = await readFile(SAVED_TO).catch(() => null);
+if (savedBytes === null) fail(`the app reported "${saved.path}" but ${SAVED_TO} does not exist`);
+if (savedBytes.byteLength === 0) fail('the saved file is empty');
+// The DXF exporter's output, not some other buffer that happened to be around:
+// R12 group-code framing from the first byte.
+const head = savedBytes.subarray(0, 64).toString('latin1');
+if (!head.startsWith('  0\r\nSECTION')) {
+  fail(`the saved file is not the DXF the selected node produced; it starts: ${JSON.stringify(head.slice(0, 40))}`);
+}
+
 mainWs.close();
 
 ws.close();
@@ -297,5 +376,6 @@ console.log(
     `       opened "${ui.docName}" with ${ui.canvasNodes} nodes on the canvas\n` +
     `       settings tabs rendered — ${panels.join(', ')} (characters)\n` +
     `       consent granted in-app — palette ${before.types} -> ${consented.types} types, ${consented.reviewTypes} from the plugin\n` +
-    `       ${(run.final ?? '').trim()}`,
+    `       ${(run.final ?? '').trim()}\n` +
+    `       saved through the UI — clicked Save on the DXF exporter, ${savedBytes.byteLength} bytes of valid R12 landed on disk`,
 );

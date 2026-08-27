@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   applySchemaDefaults,
+  assetFileName,
   createMemoryAssetStore,
   createNodeRegistry,
   isAssetRef,
+  type AssetRef,
   isRetryableError,
   markRetryable,
   type NodeModule,
@@ -109,5 +111,49 @@ describe('applySchemaDefaults', () => {
     };
     expect(applySchemaDefaults(schema, { b: 'x' })).toEqual({ a: 1, b: 'x' });
     expect(applySchemaDefaults(schema, { a: 5 })).toEqual({ a: 5 });
+  });
+});
+
+describe('assetFileName', () => {
+  const ref = (over: Partial<AssetRef>): AssetRef => ({
+    kind: 'asset', hash: 'b3:00', mediaType: 'application/octet-stream', size: 1, ...over,
+  });
+
+  it('keeps a name a node chose, extension and all', () => {
+    expect(assetFileName(ref({ name: 'riverside-tower.dxf', format: 'dxf' }))).toBe('riverside-tower.dxf');
+    expect(assetFileName(ref({ name: 'plan_02ff152c.ifc', format: 'ifc' }))).toBe('plan_02ff152c.ifc');
+  });
+
+  it('supplies an extension from the format tag, then the media type', () => {
+    expect(assetFileName(ref({ name: 'schedule', format: 'csv' }))).toBe('schedule.csv');
+    expect(assetFileName(ref({ name: 'model', mediaType: 'model/ifc' }))).toBe('model.ifc');
+    // The format tag wins: it is what the port connection was checked against.
+    expect(assetFileName(ref({ name: 'x', format: 'dxf', mediaType: 'text/csv' }))).toBe('x.dxf');
+  });
+
+  it('refuses to let a name hint escape the chosen directory', () => {
+    // `name` is a display hint from a node — or from an MCP tool, which is code
+    // this project did not write. Used raw it would make "save this file" a way
+    // to write anywhere on disk.
+    expect(assetFileName(ref({ name: '../../etc/passwd' }))).toBe('passwd');
+    expect(assetFileName(ref({ name: '/absolute/path.dxf', format: 'dxf' }))).toBe('path.dxf');
+    expect(assetFileName(ref({ name: 'C:\\Windows\\evil.dxf', format: 'dxf' }))).toBe('evil.dxf');
+    expect(assetFileName(ref({ name: '..' }))).toBe('asset');
+    expect(assetFileName(ref({ name: '.hidden' }))).toBe('hidden');
+    const forbidden = new Set([...'/\\:*?|"<>'].map((c) => c.charCodeAt(0)));
+    for (const name of ['a/b', 'a\\b', 'a:b', 'a\u0000b', 'a*b', 'a?b', 'a|b', 'a"b', 'a<b']) {
+      const out = assetFileName(ref({ name }));
+      for (const code of [...out].map((c) => c.charCodeAt(0))) {
+        expect(forbidden.has(code) || code < 0x20, `${name} -> ${out}`).toBe(false);
+      }
+    }
+  });
+
+  it('falls back to a stem, and never invents an extension it cannot justify', () => {
+    expect(assetFileName(ref({}))).toBe('asset');
+    expect(assetFileName(ref({}), 'n_abc123.out')).toBe('n_abc123.out');
+    expect(assetFileName(ref({ format: 'dxf' }), 'n_abc123')).toBe('n_abc123.dxf');
+    // Unknown format and unknown media type: no extension rather than a guess.
+    expect(assetFileName(ref({ name: 'thing', format: 'zzz' }))).toBe('thing');
   });
 });

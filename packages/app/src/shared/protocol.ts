@@ -17,7 +17,7 @@
  * (applied), and status travels engine → renderer directly. Secret VALUES only
  * ever exist in main and the engine child — never in the renderer.
  */
-import type { NodeManifest } from '@archspace/node-sdk';
+import type { AssetRef, NodeManifest } from '@archspace/node-sdk';
 import type { EngineGraph, RunEvent, ValidationIssue } from '@archspace/engine';
 import type { DocIssue, WorkflowDoc } from '@archspace/document';
 import type { AiGatewayConfig, ProfileProbeResult, ProfileStatus } from '@archspace/ai-gateway';
@@ -91,6 +91,17 @@ export interface EnginePaths {
 export type EngineControlRequest =
   | { t: 'init'; paths: EnginePaths }
   | { t: 'config'; mcp: McpConfig; ai: AiGatewayConfig; pluginConsent: PluginConsentState }
+  /**
+   * Read one asset's bytes out of the engine's store, so main can write them
+   * to a file the user picked.
+   *
+   * This is the one request that flows main → engine rather than the other way
+   * round, and it goes over the control channel rather than the renderer's
+   * because of §7.6: bulk bytes never travel to the renderer. The renderer
+   * asks main to save an AssetRef; main fetches the bytes here and writes them
+   * itself, so a 500 KB IFC never crosses into a sandboxed window.
+   */
+  | { t: 'asset-read'; requestId: number; ref: AssetRef }
   /** Reply to an engine-issued secret request (value present only on success). */
   | { t: 'secret-result'; requestId: number; value?: string; error?: string }
   /** Reply to an engine-issued OAuth authorization request. */
@@ -108,6 +119,8 @@ export type EngineControlEvent =
   /** Persisted OAuth client registration + tokens, keyed per server. */
   | { t: 'oauth-store-read'; requestId: number; server: string; slot: OAuthStoreSlot }
   | { t: 'oauth-store-write'; requestId: number; server: string; slot: OAuthStoreSlot; json: string | null }
+  /** Reply to `asset-read`. */
+  | { t: 'asset-data'; requestId: number; ok: boolean; bytes?: Uint8Array; error?: string }
   /** Mirrored to the renderer by main when no renderer port is live yet. */
   | { t: 'mcp-status'; servers: McpServerStatus[] }
   | { t: 'plugin-status'; plugins: InstalledPluginInfo[] };
@@ -247,6 +260,14 @@ export interface ArchspaceBridge {
 
   /** Open an external URL (evidence links in the Autodesk panel). */
   openExternal(url: string): Promise<void>;
+
+  /**
+   * Write one of a run's output assets to a file the user picks.
+   *
+   * Takes the ref, not the bytes: the renderer has never held them and should
+   * not start. Main reads them from the engine and writes the file.
+   */
+  saveAsset(ref: AssetRef): Promise<SaveResult>;
 }
 
 /**

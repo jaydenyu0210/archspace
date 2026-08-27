@@ -34,6 +34,78 @@ export function isAssetRef(v: unknown): v is AssetRef {
     && typeof (v as AssetRef).size === 'number';
 }
 
+/**
+ * Extensions for the formats this build produces, so a saved asset lands with
+ * the name its own tools expect.
+ *
+ * Keyed by the port-type tag (`asset<dxf>`), not the media type, because the
+ * tag is the thing a workflow author actually wrote and the thing a port
+ * connection was checked against. Media type is the fallback for assets that
+ * arrive from outside — an MCP tool's result, say — where nobody chose a tag.
+ */
+const FORMAT_EXTENSIONS: Readonly<Record<string, string>> = {
+  dxf: 'dxf',
+  ifc: 'ifc',
+  csv: 'csv',
+  json: 'json',
+  md: 'md',
+  markdown: 'md',
+  txt: 'txt',
+  png: 'png',
+  jpeg: 'jpg',
+  pdf: 'pdf',
+};
+
+const MEDIA_TYPE_EXTENSIONS: Readonly<Record<string, string>> = {
+  'image/vnd.dxf': 'dxf',
+  'model/ifc': 'ifc',
+  'text/csv': 'csv',
+  'application/json': 'json',
+  'text/markdown': 'md',
+  'text/plain': 'txt',
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'application/pdf': 'pdf',
+};
+
+/** Characters no filesystem this app runs on will take, plus path separators. */
+// eslint-disable-next-line no-control-regex
+const UNSAFE_FILENAME = /[\u0000-\u001f<>:"/\\|?*]/g;
+
+/**
+ * A filename to save an `AssetRef` under.
+ *
+ * A node's `name` hint is a display string, not a path: nothing stops a node —
+ * or an MCP tool, which is code this project did not write — from putting a
+ * slash, a `..`, or a NUL in it. Writing that straight into a save dialog's
+ * default path is how a "save this file" button becomes a way to write outside
+ * the directory the user chose. So the hint is reduced to its last path
+ * segment, stripped of anything a filesystem would refuse, and only then used.
+ *
+ * When the hint survives with an extension it is kept as-is, because a node
+ * that named its output `riverside-tower.dxf` said something worth respecting.
+ * Otherwise an extension is derived from the format tag, then the media type,
+ * and failing both the file is left extensionless rather than given a guess —
+ * `.bin` would be a claim about content that nothing supports.
+ */
+export function assetFileName(ref: AssetRef, fallbackStem = 'asset'): string {
+  const hint = (ref.name ?? '').split(/[/\\]/).pop() ?? '';
+  const cleaned = hint.replace(UNSAFE_FILENAME, '').replace(/^\.+/, '').trim();
+
+  const extension = ref.format !== undefined
+    ? FORMAT_EXTENSIONS[ref.format.toLowerCase()]
+    : MEDIA_TYPE_EXTENSIONS[ref.mediaType.toLowerCase()];
+
+  if (cleaned !== '') {
+    // A name that already ends in the right extension is complete.
+    if (/\.[A-Za-z0-9]{1,8}$/.test(cleaned)) return cleaned;
+    return extension === undefined ? cleaned : `${cleaned}.${extension}`;
+  }
+
+  const stem = fallbackStem.replace(UNSAFE_FILENAME, '').trim() || 'asset';
+  return extension === undefined ? stem : `${stem}.${extension}`;
+}
+
 /** Port type expression — grammar and rules in @archspace/types (§6). */
 export type PortType = string;
 

@@ -54,6 +54,9 @@ and notarisation or macOS refuses to open it. Until that is set up,
    only get what they declare, so you are asked before anything loads.
 4. **Press ▶ Run again.** About five seconds. Watch each node report progress in
    the log at the bottom, then click a node to see what it produced.
+5. **Save something.** Click the *Export Floor Plan to DXF* node and press
+   **Save…** in the panel at the bottom right. That is a real CAD drawing —
+   open it in AutoCAD, LibreCAD, QCAD, or any online DXF viewer.
 
 From there: drag a node from the palette on the left onto the canvas, drag from
 one node's output dot to another's input to wire them, and edit settings in the
@@ -170,15 +173,18 @@ Needs [Node](https://nodejs.org) (version in `.nvmrc`) and
 ```sh
 pnpm install
 pnpm dev      # run the app
-pnpm test     # 1057 tests across 12 packages
+pnpm test     # 1071 tests across 12 packages
 ```
 
 Run a workflow with no UI — a real feature, not a test harness:
 
 ```sh
 pnpm cli run packages/app/resources/concept-compliance.archspace.yaml \
-  --trust-plugin aec-review
+  --trust-plugin aec-review --out ./artifacts
 ```
+
+`--out` writes every file the run produced (the DXF drawing, the IFC model)
+into that directory.
 
 Package it:
 

@@ -218,6 +218,8 @@ export function pluginChildEntry(): string {
 export interface WorkflowNode {
   id: string;
   type: string;
+  /** Node params, emitted as inline YAML. Omitted means `config: {}`. */
+  config?: Record<string, string | number | boolean>;
 }
 
 export interface WorkflowRequires {
@@ -231,10 +233,28 @@ export interface WorkflowRequires {
  * generated `requires:`/`layout:` blocks `saveWorkflow` emits, so a fixture
  * never fails for a reason the parser would also raise against a real file.
  */
-export function workflowYaml(name: string, nodes: WorkflowNode[], requires: WorkflowRequires = {}): string {
+/**
+ * A workflow document as text.
+ *
+ * `edges` is a list of `"from.port -> to.port"` strings, matching the shorthand
+ * the document format itself uses — a test that needed a chain of nodes used to
+ * have to hand-write the whole file, which put the format under test in every
+ * test that merely wanted something to run.
+ */
+export function workflowYaml(
+  name: string,
+  nodes: WorkflowNode[],
+  requires: WorkflowRequires = {},
+  edges: string[] = [],
+): string {
   const list = (values: string[] | undefined): string => `[${(values ?? []).join(', ')}]`;
+  const inline = (config: Record<string, string | number | boolean> | undefined): string => {
+    const entries = Object.entries(config ?? {});
+    if (entries.length === 0) return '{}';
+    return `{ ${entries.map(([k, v]) => `${k}: ${typeof v === 'string' ? JSON.stringify(v) : String(v)}`).join(', ')} }`;
+  };
   const nodeBlock = nodes
-    .map((n) => `  - id: ${n.id}\n    type: ${n.type}\n    version: 1\n    config: {}`)
+    .map((n) => `  - id: ${n.id}\n    type: ${n.type}\n    version: 1\n    config: ${inline(n.config)}`)
     .join('\n');
   const layoutBlock = nodes.map((n, i) => `  ${n.id}: { x: ${120 + i * 180}, y: 240 }`).join('\n');
   return [
@@ -251,7 +271,7 @@ export function workflowYaml(name: string, nodes: WorkflowNode[], requires: Work
     'nodes:',
     nodeBlock,
     '',
-    'edges: []',
+    edges.length === 0 ? 'edges: []' : `edges:\n${edges.map((e) => `  - ${e}`).join('\n')}`,
     '',
     'layout:',
     layoutBlock,
