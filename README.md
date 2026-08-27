@@ -1,451 +1,192 @@
 # Archspace
 
-**Node-based workflows for AEC work.** Archspace is an open-source, macOS-first
-desktop app in which you wire a directed graph on a canvas — plan a brief,
-generate a scheme, review it against code, report on it — and run it. Workflows
-are saved as plain, comment-preserving YAML that diffs cleanly in git, so a
-workflow is something you can review in a pull request rather than a document
-locked inside an application.
+**Node-based workflows for architecture and construction work.**
 
-It is for the people who already automate AEC work and are tired of the seams:
-architects and computational-design people who live in Dynamo/Grasshopper/pyRevit
-and want AI model calls, MCP tools and file-format operations in the *same*
-graph, under version control, on a Mac.
+Wire up a graph on a canvas — write a brief, generate a scheme, check it against
+code, produce a report — then press Run. Workflows save as plain text that reads
+well in a git diff, so a workflow is something a colleague can review in a pull
+request rather than a file locked inside an application.
 
-> ### Read this before you install anything
->
-> This repository is a **pre-release build (v0.1.0)**, and it is deliberately
-> honest about that:
->
-> - **There is no published release yet.** No signed `.dmg` exists to download.
->   Building from source is the only way to run it today.
-> - **The nodes that stand in for generative and review backends are
->   deterministic mocks** — six of the fourteen `aec.*` nodes (the massing, floor
->   plan, structural grid and BIM generators, the fixer, the report writer) and
->   the five `aec.review.*` discipline checks. They do no network I/O, call no
->   model, and return the same answer every run. What they *are* is the output
->   contract a real backend will have to satisfy. The plumbing around them — the
->   planning, scheduling, comparison and export nodes — is real.
-> - **The `ai.*` nodes are not mocks** — they call whichever provider your model
->   profile names, and fail with a clear message when none is bound.
-> - **Nothing here talks to Revit.** See [Revit and Autodesk](#revit-and-autodesk).
->
-> The full breakdown is in [Status: real, mock, or absent](#status-real-mock-or-absent).
+It is aimed at people who already automate AEC work in Dynamo, Grasshopper or
+pyRevit and want AI calls, external tools and file operations in the *same*
+graph, under version control.
+
+> **This is an early preview (v0.1.0).** Several of the design nodes are
+> realistic mocks rather than real engines — see
+> [What's real and what isn't](#whats-real-and-what-isnt). Please read that
+> before judging it.
 
 ---
 
-## The workflow model
-
-A workflow is a **DAG**, not a script and not a flowchart. Six ideas carry the
-whole model:
-
-**1. Nodes are declarative manifests plus one async function.** A node type
-declares its ports, its parameters (as JSON Schema — which is what lets the app
-generate the inspector form, and lets MCP tools become nodes mechanically), its
-caching policy and its concurrency lane. Its `execute(ctx, inputs, params)`
-reaches the outside world *only* through `ctx`. See
-[ADR-0005](docs/adr/0005-node-contract.md) and the walkthrough in
-[docs/creating-nodes.md](docs/creating-nodes.md).
-
-**2. Wires carry values, not bytes.** Ports have types — `text`, `number`,
-`boolean`, `json`, `table`, `list<T>`, and tagged assets like `asset<ifc>`.
-Assignability is explicit: no implicit mapping, no silent lossy coercion
-([ADR-0006](docs/adr/0006-port-type-system.md)). Bulk data (an IFC model, a point
-cloud) travels as an `AssetRef` into a content-addressed store; the wire carries
-the reference ([ADR-0011](docs/adr/0011-assets-and-projects.md)).
-
-**3. Execution is demand-driven and memoized.** You ask for a node's output; the
-engine walks back, runs only what is stale, and runs independent branches
-concurrently within per-resource *lanes* (`ai`, `mcp:<server>`, …). One branch
-failing leaves independent branches `succeeded` and only its own descendants
-`skipped` ([ADR-0007](docs/adr/0007-execution-engine.md)).
-
-**4. Status is an event stream, not shared state.** A run emits
-`node:started` / `node:progress` / `node:succeeded` / `node:failed` …; the canvas
-and the CLI render the same stream. That is why the headless runner is a
-first-class user feature and not a test-only shim.
-
-**5. Loops are unrolled.** A review → fix → re-review cycle is two review nodes
-side by side, never a back-edge — see
-`packages/app/resources/review-fix-report.archspace.yaml`.
-
-**6. The document is the source of truth.** Saving patches the YAML CST in place,
-so your comments and key order survive a round-trip; node positions are
-quarantined in a `layout:` block at the bottom so moving a node on the canvas
-does not scramble the diff; and a generated `requires:` block at the top names
-the plugins, MCP servers and model profiles the file needs
-([ADR-0004](docs/adr/0004-workflow-document-format.md)).
-
-Three example workflows ship in `packages/app/resources/` and are copied into
-your workflows directory on first launch:
-
-| File | What it demonstrates |
-|---|---|
-| `concept-compliance.archspace.yaml` | Brief → program → floor plan → IFC model → code review → report |
-| `branching-review.archspace.yaml` | One scheme, five concurrent review arms, one merge; partial failure |
-| `review-fix-report.archspace.yaml` | The unrolled review → fix → re-review → compare loop |
-
----
-
-## Install (end users)
-
-**No release has been published yet.** `.github/workflows/release.yml` builds,
-signs and notarizes a universal macOS `.dmg` + `.zip` and publishes them as a
-**draft** GitHub Release on a `v*` tag, but no such tag exists in this
-repository. Until one does, [build from source](#build-from-source).
-
-When a release does exist, this is what to expect:
-
-1. Download the `.dmg` from the repository's **Releases** page, open it, drag
-   **Archspace** to Applications.
-2. On first open, macOS shows the standard prompt for a notarized app
-   downloaded from the internet — *"Archspace is an app downloaded from the
-   Internet. Are you sure you want to open it?"* Click **Open**. That prompt is
-   the expected one; you should not have to right-click, run `xattr`, or visit
-   Privacy & Security.
-3. If you instead see *"cannot be opened because the developer cannot be
-   verified"*, the build you downloaded was **not** signed — do not work around
-   it, report it. The release workflow refuses to publish unsigned artifacts
-   precisely so that this message is never something you have to click past
-   ([ADR-0012](docs/adr/0012-macos-packaging.md)).
-
-Archspace is **not** on the Mac App Store, and will not be for v1: the App
-Sandbox forbids the things the product is made of — spawning stdio MCP servers,
-one child process per plugin, opening arbitrary project directories. That
-trade-off is written down rather than papered over (ADR-0012 §4).
+## Download
 
 ### Windows
 
-There is a Windows build — an NSIS installer and ZIPs for x64 and arm64,
-produced by `pnpm dist:win` ([ADR-0014](docs/adr/0014-windows-packaging.md)) —
-with two honest caveats:
+**[Download the installer](https://github.com/jaydenyu0210/archspace/releases/latest)**
+— works on both Intel/AMD and ARM PCs.
 
-- **It is unsigned.** There is no Authenticode certificate, so SmartScreen will
-  show *"Windows protected your PC"* on first run. Getting past it means
-  **More info → Run anyway**. Unlike the macOS case above, this is expected
-  rather than a sign something is wrong.
-- **Nobody has run it.** It is cross-packaged on macOS. The bundle is verifiably
-  assembled correctly — installer, asar, bundled examples, the first-party
-  plugin, the updater — but every *runtime* behaviour on Windows is untested:
-  the engine child process, plugin processes, stdio MCP transports, and
-  `safeStorage`, which is DPAPI on Windows rather than Keychain. Treat it as
-  "should work, unproven", and please report what actually happens.
+Windows will show a blue **"Windows protected your PC"** box, because this build
+is not code-signed. Click **More info → Run anyway**. The installer does not
+need administrator rights.
 
-Linux is not packaged. Nothing in the codebase prevents it — no package below
-the Electron shell imports platform-specific code — but no target is
-configured and no build has been attempted.
+*Nobody has run this on Windows yet.* It builds and every file is verifiably in
+the right place, but you may be the first person to launch it. Please
+[open an issue](https://github.com/jaydenyu0210/archspace/issues) with whatever
+happens.
 
----
+### macOS
 
-## Build from source
-
-### Prerequisites
-
-| | Version | Where it is pinned |
-|---|---|---|
-| **Node.js** | **22** (`engines` allows ≥22) | [`.nvmrc`](.nvmrc), `package.json` |
-| **pnpm** | **10.33.2** | `packageManager` in [`package.json`](package.json) |
-| **macOS** | any recent version, Apple silicon or Intel | — |
-
-`corepack enable` will honour the pinned pnpm version automatically. CI pins
-nothing beyond these two files on purpose — a second pin eventually disagrees
-with the first.
-
-### Run it from the workspace
-
-```sh
-pnpm install
-pnpm --filter @archspace/plugin-aec-review build   # the first-party plugin is loaded from its built dist/
-pnpm dev                                           # launches Electron; opens the concept-compliance example
-```
-
-`pnpm dev` starts electron-vite with HMR for the renderer. On first launch the
-three example workflows are copied into
-`~/Library/Application Support/Archspace/workflows/` and the first one is opened,
-so you are never staring at an empty canvas.
-
-### Run a workflow headless
-
-The CLI is both a user feature and the integration harness
-([ADR-0013](docs/adr/0013-testing-strategy.md)). This command works from a fresh
-checkout and prints the live run event stream:
-
-```sh
-pnpm cli run packages/app/resources/concept-compliance.archspace.yaml --trust-plugin aec-review
-```
-
-`--trust-plugin` is **required, not decorative**. That workflow uses
-`aec.review.code_compliance`, which lives in the first-party plugin, and a plugin
-that has not been consented to cannot load — even one declaring zero permissions
-([ADR-0008](docs/adr/0008-plugin-boundary.md)). A terminal has no consent dialog,
-so the grant is made explicitly on the command line, scoped to that single run.
-Drop the flag and the run refuses to start — `plugin "aec-review" is
-needs-consent: this plugin has not been reviewed yet` — which is the boundary
-working, not a bug.
-
-Other CLI commands — all of which read the same settings files the desktop app
-does:
-
-```sh
-pnpm cli nodes                  # every node type available here (18; 25 with the plugin trusted)
-pnpm cli plugins                # installed plugins and their consent state
-pnpm cli mcp [--connect NAME]   # configured MCP servers and their tools
-pnpm cli ai  [--probe PROFILE]  # model profiles and whether they are ready
-pnpm cli doctor [WORKFLOW]      # all of the above as one report
-```
-
-`doctor` exists for the failure mode this app has to be good at: *"the workflow
-my colleague sent me will not run on my machine."* A document names logical
-servers, profiles and plugins; only your machine's settings say what those
-resolve to.
-
-### Package the app locally
-
-```sh
-pnpm dist        # macOS: universal .dmg + .zip  → packages/app/dist/
-pnpm dist:win    # Windows: NSIS installer + zips, x64 and arm64
-```
-
-Both run `scripts/check-bundle.mjs` first, which fails the build if a workspace
-package was left external — that once shipped an app that could not start at
-all (see [CONTRIBUTING](CONTRIBUTING.md) §3a).
-
-Both builds are **unsigned**. The macOS one runs on the machine that built it
-— a locally built app was never downloaded, so it carries no quarantine flag
-and Gatekeeper does not gate it — but do not hand it to anyone else. The signed,
-notarized `.dmg` is produced only by CI, which is the only sanctioned release
-path because that is where the Apple credentials live (ADR-0012 §3).
-
-The Windows build is cross-packaged from macOS and **has never been run on
-Windows**; see [Install → Windows](#windows) above for what that does and does
-not prove.
-
-After building macOS, this is worth running:
-
-```sh
-pnpm --filter @archspace/app smoke
-```
-
-It launches the built app against a throwaway profile and drives the whole
-out-of-box flow over the DevTools Protocol — opens the bundled example, opens
-all four settings tabs, grants consent to the bundled plugin, and runs the
-workflow that depends on it. It is not in CI because it needs a window server.
+Not yet. The app builds and runs on macOS, but a download needs Apple signing
+and notarisation or macOS refuses to open it. Until that is set up,
+[build it from source](#for-developers).
 
 ---
 
-## Development
+## Your first five minutes
 
-Five commands define "done", and CI runs exactly these, in this order, on
-macOS ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
+1. **Open it.** Archspace starts with an example already loaded —
+   *Concept compliance check*, six connected nodes.
+2. **Press ▶ Run.** It will refuse. One node comes from a plugin that ships with
+   the app but has not been enabled yet — and it tells you exactly that, and
+   where to fix it.
+3. **Enable the plugin.** Menu → **Archspace → Plugins…**, read what it asks
+   for, click **Grant consent & enable**. Plugins run in their own process and
+   only get what they declare, so you are asked before anything loads.
+4. **Press ▶ Run again.** About five seconds. Watch each node report progress in
+   the log at the bottom, then click a node to see what it produced.
 
-```sh
-pnpm lint
-pnpm typecheck
-pnpm --filter @archspace/plugin-aec-review build   # must precede test: the plugin is loaded from its dist/
-pnpm test
-pnpm cli run packages/app/resources/concept-compliance.archspace.yaml --trust-plugin aec-review
-```
+From there: drag a node from the palette on the left onto the canvas, drag from
+one node's output dot to another's input to wire them, and edit settings in the
+panel on the right. Every node's form is generated from the node itself, so a
+plugin you install tomorrow gets a proper editor for free.
 
-The last one is not a demo. Everything below the Electron shell runs headless by
-design, so a real end-to-end run through the document parser, the type system,
-the scheduler and the plugin boundary is the cheapest honest integration gate we
-have. If it breaks, one of those broke, and the event stream says which.
+Two more examples are already in your workflows folder:
 
-House rules that no linter can enforce for you:
-
-- Every source file opens with a doc comment giving the design rationale and
-  citing what it implements (`ARCHITECTURE §9 / ADR-0009`). Comments explain
-  *why*, and usually name the alternative that lost.
-- `any`, `@ts-expect-error` and `eslint-disable` are errors outside tests. **A
-  false green is worse than a known failure** — if something cannot be done
-  honestly, leave it undone and say so.
-- Only `packages/app` may import `electron`. Everything below the shell takes
-  its capabilities as injected seams, which is what keeps the CLI and the test
-  suites working. ESLint enforces this one.
-
-Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) first; every decision in it
-has a record in [`docs/adr/`](docs/adr/README.md), and the ADR wins over
-intuition — the rejected alternatives are named on purpose.
+| Example | What it shows |
+|---|---|
+| `branching-review` | One design, five reviews running at once, merged into a single result |
+| `review-fix-report` | Review → fix the problems → review again → compare the two |
 
 ---
 
-## Extending Archspace
+## What's real and what isn't
 
-There are three extension points, and they are three because they answer three
-different questions.
+Being straight about this matters more than looking finished.
 
-### Plugins — for TypeScript node authors
+**Real, and doing what it says:**
 
-A plugin is a directory with an `archspace-plugin.json` manifest and a JS entry
-exporting `NodeModule[]`, and it runs as **its own OS process**, a child of the
-engine host, speaking capability RPC — so a segfaulting native dependency fails
-one node rather than the app, and cancellation has honest kill semantics. A
-plugin owns a node-type namespace, declares the permissions it needs (`net`,
-named secrets), and cannot load at all until the user consents; it reaches the
-world only through `NodeContext`, never the filesystem, the network, the
-renderer, or another plugin. Note the stated limit: v1's boundary is fault
-isolation plus permission mediation, **not a hardened security sandbox** — a
-malicious native dependency inside a plugin process can do what you can do.
-→ [ADR-0008](docs/adr/0008-plugin-boundary.md). Worked example:
-[`plugins/aec-review/`](plugins/aec-review), which is first-party but ships as a
-real plugin so the boundary is load-bearing rather than decorative.
+- The workflow format, the canvas, and the execution engine
+- The plugin system, the MCP client, and the AI nodes — the AI nodes call real
+  providers (Anthropic, Ollama, or any OpenAI-compatible endpoint) once you add
+  a model profile in Settings
+- The rule-based nodes: briefs, space programs, parking estimates, room
+  schedules, adjacency, CSV export — plain calculations over your actual inputs
 
-### MCP servers — for everyone else, in any language
+**Realistic mocks, not real engines:**
 
-Python, C#, Rust and Go authors do not write Archspace plugins; they ship an
-**MCP server**, and on connect every tool it advertises becomes a node
-(`mcp.<server>.<tool>`) generated mechanically from its JSON Schema. Workflows
-reference servers by **logical name** only — `revit`, `formats` — while the
-binding that says what `revit` actually *is* lives in
-`~/Library/Application Support/Archspace/mcp.yaml` on your machine, so documents
-stay shareable and a repository can never make your machine execute a command.
-The client is the official TypeScript SDK with both transports, OAuth 2.1 + PKCE
-for remote servers, tokens in the Keychain, and a stored schema hash per node so
-a tool that changes shape flags the node for review instead of silently
-re-mapping. → [ADR-0009](docs/adr/0009-mcp-integration.md).
+- Floor-plan, massing, structural-grid and BIM generation
+- The five review disciplines (code, accessibility, zoning, structural, energy)
 
-### AI providers — no provider is privileged
+They produce structured, repeatable, plausible output with no network and no
+model behind them, and each says "Mock …" in its own description. What *is* real
+about them is the shape of what they return: a genuine backend can be
+substituted later without redesigning a single workflow.
 
-Nodes call `ctx.ai` (`generateText`, `generateObject`, `embed`) and never see a
-provider SDK or a key; the gateway behind it is implemented over the Vercel AI
-SDK's *provider layer* as a plain library — no traffic is routed through anyone,
-and no hosted gateway is ever a default. Workflows name a **model profile**
-(`default`, `fast`, `reasoning`) defined in
-`~/Library/Application Support/Archspace/ai.yaml`, never a vendor or a model
-string, so a colleague's workflow runs unchanged on your provider. Shipped
-providers today: **Anthropic**, **Ollama** (local, no key, no egress), **any
-OpenAI-compatible endpoint** (LM Studio, vLLM, a self-hosted router), and a
-deterministic **mock** provider for CI and offline demos — never a default.
+**Files it can produce:**
+
+- **IFC** (`generate_bim_model`) — a real IFC4 file with a correct spatial
+  hierarchy of storeys, spaces, walls and doors. **It contains no geometry**, so
+  an IFC viewer shows the structure tree over an empty 3D view.
+- **CSV** (`export_table_csv`) — ordinary RFC 4180.
+- **No CAD.** Nothing writes DXF or DWG.
+
+**Not implemented at all:** Revit and Autodesk. The app shows a full matrix of
+what exists and what is an unbuilt seam, with reasons, under
+**Archspace → Autodesk & Revit…**
+
+The exhaustive version of all of this is in
+**[docs/STATUS.md](docs/STATUS.md)**.
+
+---
+
+## How it works, briefly
+
+A workflow is a **directed graph**, not a script.
+
+- **Nodes** declare their inputs, outputs and settings. The app generates the
+  editing form from that declaration.
+- **Wires carry typed values** — text, numbers, tables, JSON, file references.
+  Mismatched types will not connect, so a broken graph is visible before it runs.
+- **Only what is needed runs.** Ask for one node's output and the engine works
+  backwards, skips anything already up to date, and runs independent branches at
+  the same time.
+- **One failure does not sink the run.** Independent branches still succeed; only
+  what depended on the failure is skipped.
+- **The file is the truth.** Saving edits the YAML in place, so your comments and
+  ordering survive. Node positions live in their own block at the bottom, so
+  nudging a node on the canvas does not produce a noisy diff.
+
+---
+
+## Extending it
+
+Three ways in, for three different people.
+
+**Plugins — if you write TypeScript.** A folder with a manifest and an entry
+file. Each plugin runs in its own OS process, declares the permissions it needs,
+and cannot load until you consent. A crashing plugin fails one node, not the
+app. Worth knowing the stated limit: this is fault isolation and permission
+mediation, **not a hardened security sandbox**.
+→ [ADR-0008](docs/adr/0008-plugin-boundary.md), with
+[`plugins/aec-review/`](plugins/aec-review) as a working example.
+
+**MCP servers — if you write anything else.** Python, C#, Rust, Go: ship an
+[MCP](https://modelcontextprotocol.io) server and every tool it offers becomes a
+node automatically. Workflows refer to servers by a nickname you choose, and
+what that nickname points at lives in your own settings — so sharing a workflow
+never makes someone else's machine run your commands.
+→ [ADR-0009](docs/adr/0009-mcp-integration.md).
+
+**AI providers — no provider is special.** Nodes ask for a *model profile* you
+named (`default`, `fast`), never a vendor. A colleague's workflow runs unchanged
+against your provider. Anthropic, Ollama (local, no key, nothing leaves your
+machine), and any OpenAI-compatible endpoint work today.
 → [ADR-0010](docs/adr/0010-ai-provider-abstraction.md).
 
 ---
 
-## Revit and Autodesk
+## For developers
 
-**Archspace does not integrate with Revit today, and this repository contains no
-Revit code.** Saying otherwise would be the most tempting lie available to an AEC
-tool, so here is the whole picture:
+Needs [Node](https://nodejs.org) (version in `.nvmrc`) and
+[pnpm](https://pnpm.io).
 
-- **Revit is Windows-only.** Autodesk publishes no macOS build; Revit's API is
-  the .NET add-in model, loaded in-process by a live Revit session. Every Revit
-  MCP server — Autodesk's own Revit 2027 Tech Preview server and the community
-  ones alike — therefore runs on Windows, beside that session.
-- **Archspace ships macOS-first** ([ADR-0001](docs/adr/0001-platform-strategy.md)),
-  so the *only* architecturally sanctioned path to a live Revit session is a
-  **remote MCP server**: Revit plus an MCP bridge running on a Windows machine
-  you control (a workstation, an office box, a Parallels VM, a cloud VM), reached
-  over authenticated Streamable HTTP. The app never links Revit code. What you
-  can do through it is whatever that server can do.
-- **Archspace does not ship that bridge.** A first-party Windows Revit agent
-  (add-in + bridge + installer) is named in the architecture as a future
-  deliverable; no part of it is built here. Until it exists you supply your own
-  server, and Archspace is only the MCP client.
-- **Autodesk Platform Services (APS) is not implemented.** Design Automation,
-  AEC Data Model, Model Derivative, Data Management and their OAuth are empty,
-  named seams that throw `UnimplementedCapabilityError` if reached.
-- **One Autodesk server works from a Mac as-is:** the remote **Autodesk Product
-  Help MCP** server (documentation search, no Revit, no Windows) — reachable like
-  any other remote MCP server once you have its endpoint.
-
-None of this is folklore. `packages/autodesk` holds the capability table — 11
-entries: 1 available, 3 Windows-only, 1 requiring a remote agent, and 6 not
-implemented — each with a status, what it requires, and cited evidence for why we
-believe it. That package exports **zero nodes**, on purpose: an `autodesk.*` node
-whose `execute()` threw would still appear in the palette and be saved into
-documents, which is a seam masquerading as a feature.
-
----
-
-## Status: real, mock, or absent
-
-| Area | Status |
-|---|---|
-| Workflow document (parse / patch / emit, comment survival, migrations, lint) | **Real**, property-tested |
-| Port type system, node contract + testkit | **Real** |
-| Execution engine (lanes, memoization, cancel, retry, partial failure, events) | **Real**, deterministic-mode tested |
-| CLI (`run`, `nodes`, `plugins`, `mcp`, `ai`, `doctor`) | **Real** |
-| Electron shell: canvas, palette, JSON-Schema inspector, live run log, open/save | **Real** |
-| Plugin host: manifest, consent, one process per plugin, crash containment | **Real** |
-| MCP host: official SDK, stdio + Streamable HTTP, OAuth 2.1, tools → nodes | **Real** code; not yet exercised against a live Revit server |
-| AI gateway: profiles, Anthropic / Ollama / OpenAI-compatible / mock | **Real** — calls the provider your profile names |
-| `ai.generate_text`, `ai.generate_object`, `ai.extract_table`, `ai.embed` | **Real** model calls; fail with a clear message when no profile is bound |
-| `aec.generate_massing`, `generate_floor_plan`, `generate_structural_grid`, `generate_bim_model`, `apply_plan_fixes`, `generate_compliance_report` | **Deterministic mocks** of generative backends — no network, no model, no keys, and a `mock_latency_ms` param that simulates the pacing you see in the progress log. Each says "Mock …" in its own manifest description. `generate_bim_model` does write a real IFC4 SPF (STEP) file — a 6-storey run produces ~74 KB with 636 walls, 159 spaces and 153 doors under a proper `IFCPROJECT → IFCSITE → IFCBUILDING → IFCBUILDINGSTOREY` hierarchy and real IFC GUIDs. **Spatial structure only: no geometry.** Every element has null placement and null representation, so an IFC viewer shows the tree and an empty 3D view |
-| `aec.project_brief`, `site_constraints`, `space_program`, `adjacency_matrix`, `parking_estimate`, `generate_room_schedule`, `compare_reviews`, `export_table_csv` | **Real** — pure rule-based derivations over their actual inputs (setbacks/FAR from real lot dimensions, a schedule from real plan geometry, RFC 4180 CSV). Simple, but not stand-ins. Their inputs, however, usually come from the mocked generators above |
-| `aec.review.code_compliance`, `accessibility`, `zoning`, `structural`, `energy_performance` | **Deterministic mocks** of review engines — but each check runs against the *actual* upstream geometry and constraints, so changing a design param genuinely changes the findings |
-| `aec.review.filter_findings`, `merge_findings` | **Real** — pure set operations over review results; no backend stands behind them |
-| The plugin boundary those seven nodes ride on | **Real** — a genuine separate OS process, install-time consent, capability RPC, crash containment |
-| Autodesk / Revit / APS | **Not implemented** — see above |
-| 3D / IFC preview (three.js + web-ifc, [ADR-0003](docs/adr/0003-frontend-and-canvas.md)) | **Not built.** Designed, dependencies not even installed |
-| macOS packaging (`pnpm dist`) | **Real, and verified.** Produces a universal .dmg and .zip; the packaged app launches, renders, and opens the bundled example. Unsigned unless a Developer ID identity is present — see [docs/releasing.md](docs/releasing.md) §8 for exactly what was observed |
-| Signing, notarization, Homebrew cask | **Not done.** No Developer ID identity, no tag pushed, so `release.yml` has never run |
-| Auto-update | **Wired, unproven.** Reads the GitHub Releases feed on launch and ships in the bundle; no release has ever exercised it, and a private repo's feed is not anonymously readable |
-| Windows packaging | **Builds, unverified** (ADR-0014). `pnpm dist:win` produces an unsigned NSIS installer and ZIPs for x64 + arm64. Cross-packaged on macOS — the bundle is assembled correctly, but **nobody has run it on Windows** |
-| Linux packaging | **Deferred by decision** (ADR-0001); no package imports platform code |
-
-The mock nodes' output shapes are the contract, not a sketch:
-[`packages/nodes-core/src/shapes.ts`](packages/nodes-core/src/shapes.ts) is
-structured exactly as a real backend would return, so substituting a real
-integration is a change inside `execute()`, never a port or shape rewrite. The
-mock nodes announce themselves where you can see it: each one's manifest
-description opens with "Mock …", and that description is what the palette and the
-inspector display.
-
-### Known gaps in the repo itself
-
-- **The app is not signed or notarized**, so a first launch needs
-  right-click → Open. `pnpm dist` itself works and the packaged app runs; only
-  the signing half is unexercised (docs/releasing.md §8).
-- One structural trap worth knowing before you go bug-hunting: `pnpm test` is
-  `pnpm -r run test`, every package declares `"test": "vitest run"`, and
-  **Vitest exits non-zero when a package has no test files at all** — so a new
-  package without a suite reds the whole command with nothing actually failing
-  an assertion.
-- **CI does not launch Electron**, which is how two launch-blocking bugs once
-  shipped past a fully green run. `pnpm --filter @archspace/app smoke` closes
-  part of that gap by hand; see [CONTRIBUTING](CONTRIBUTING.md) §3a.
-- **Param promotion is specified but unbuilt.** ARCHITECTURE §5.1 and §9.3 say
-  a param marked `promotable` can be exposed as an input port, and MCP params
-  already carry the flag — but the document format has no field to persist the
-  choice, so this needs an ADR before it needs code.
-- No 3D/IFC preview and no published release — see the status table above.
-
----
-
-## Repository layout
-
-```
-packages/
-  types/          port type system: grammar, assignability, coercions      (§6  / ADR-0006)
-  node-sdk/       public node contract: manifest, module, context, testkit (§5  / ADR-0005)
-  document/       canonical comment-preserving YAML, CST patch-on-save     (§4  / ADR-0004)
-  engine/         demand-driven memoized DAG: lanes, cancel, event stream  (§7  / ADR-0007)
-  nodes-core/     18 built-in nodes: 14 aec.* (6 are backend mocks) + 4 ai.* (real)
-  ai-gateway/     provider abstraction: named model profiles over ctx.ai   (§10 / ADR-0010)
-  mcp-host/       MCP client pool, OAuth 2.1, tools → generated nodes      (§9  / ADR-0009)
-  plugin-host/    out-of-process plugin loader: consent, supervision, RPC  (§8  / ADR-0008)
-  autodesk/       what we may claim about Revit/APS: capabilities, sources,
-                  MCP presets, unimplemented seams — and zero nodes        (ADR-0001)
-  cli/            `archspace` headless runner and integration harness      (ADR-0013)
-  app/            Electron shell: main + preload + renderer + engine child (§3  / ADR-0002)
-plugins/
-  aec-review/     first-party plugin — the 7 aec.review.* nodes; dogfoods the boundary
-docs/
-  ARCHITECTURE.md the spec; adr/ the decisions; research/ the evidence;
-                  creating-nodes.md the practical node-authoring guide
+```sh
+pnpm install
+pnpm dev      # run the app
+pnpm test     # 999 tests across 12 packages
 ```
 
-`types`, `node-sdk`, `document`, `engine`, `nodes-core`, `ai-gateway`,
-`mcp-host`, `plugin-host`, `autodesk` and `cli` contain **zero Electron
-imports** — all of it runs headless in plain Node, which is the property the
-whole testing strategy rests on.
+Run a workflow with no UI — a real feature, not a test harness:
+
+```sh
+pnpm cli run packages/app/resources/concept-compliance.archspace.yaml \
+  --trust-plugin aec-review
+```
+
+Package it:
+
+```sh
+pnpm dist        # macOS .dmg + .zip
+pnpm dist:win    # Windows installer + zips
+```
+
+**[CONTRIBUTING.md](CONTRIBUTING.md)** has the rest: the five commands CI runs,
+the house rules, and the traps worth knowing before you lose an afternoon to
+one. Design decisions live in [docs/adr/](docs/adr/) — the reasoning, and what
+was rejected, is written down.
 
 ---
 
 ## Licence
 
-**Apache-2.0** — see [`LICENSE`](LICENSE), with third-party attributions in
-[`NOTICE`](NOTICE). The choice is deliberate rather than default: it stays
-compatible in both directions with the dependency set this architecture wants
-(LGPL tools kept out-of-process, MPL-2.0 web-ifc, MIT elsewhere), and it grants
-patent rights explicitly, which matters for a tool aimed at professional
-practice.
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
