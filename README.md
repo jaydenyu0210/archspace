@@ -94,11 +94,15 @@ substituted later without redesigning a single workflow.
 
 **Files it can produce:**
 
+- **DXF** (`export_dxf`) — a real 2D CAD drawing you can open in AutoCAD,
+  LibreCAD, QCAD or any DXF viewer: rooms, walls at their true thickness, doors,
+  exits and labels, on properly named layers, one set per storey. This is the
+  one output with actual drawable geometry.
 - **IFC** (`generate_bim_model`) — a real IFC4 file with a correct spatial
   hierarchy of storeys, spaces, walls and doors. **It contains no geometry**, so
   an IFC viewer shows the structure tree over an empty 3D view.
 - **CSV** (`export_table_csv`) — ordinary RFC 4180.
-- **No CAD.** Nothing writes DXF or DWG.
+- **No DWG.** DXF is the interchange format; DWG is proprietary.
 
 **Not implemented at all:** Revit and Autodesk. The app shows a full matrix of
 what exists and what is an unbuilt seam, with reasons, under
@@ -163,7 +167,7 @@ Needs [Node](https://nodejs.org) (version in `.nvmrc`) and
 ```sh
 pnpm install
 pnpm dev      # run the app
-pnpm test     # 999 tests across 12 packages
+pnpm test     # 1033 tests across 12 packages
 ```
 
 Run a workflow with no UI — a real feature, not a test harness:

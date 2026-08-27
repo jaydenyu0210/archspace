@@ -44,6 +44,16 @@ nodes:
     type: aec.generate_bim_model
     version: 1
     config: {}
+  # The one output with drawable geometry. The IFC above carries the spatial
+  # hierarchy but no shapes; this writes the plan itself, so there is something
+  # in the run you can open in CAD and draw over.
+  - id: n_p2f6dy
+    type: aec.export_dxf
+    version: 1
+    config:
+      file_name: riverside-tower.dxf
+      # Every storey side by side. Set this to a storey number for one plan.
+      level: all
   - id: n_r9t3kv
     type: aec.review.code_compliance
     version: 1
@@ -60,6 +70,7 @@ edges:
   - n_k3v9qp.brief -> n_qw7xps.brief
   - n_8t2mfa.program -> n_qw7xps.program
   - n_qw7xps.floor_plan -> n_c4m2hd.floor_plan
+  - n_qw7xps.floor_plan -> n_p2f6dy.floor_plan
   - n_qw7xps.floor_plan -> n_r9t3kv.floor_plan
   - n_c4m2hd.summary -> n_r9t3kv.bim_summary
   - n_c4m2hd.model -> n_r9t3kv.model
@@ -71,5 +82,6 @@ layout:
   n_8t2mfa: { x: 420, y: 80 }
   n_qw7xps: { x: 780, y: 200 }
   n_c4m2hd: { x: 1140, y: 80 }
+  n_p2f6dy: { x: 1140, y: 400 }
   n_r9t3kv: { x: 1500, y: 220 }
   n_z6w8na: { x: 1860, y: 120 }

@@ -21,6 +21,7 @@ import type { NodeModule, NodeRegistry } from '@archspace/node-sdk';
 import { adjacencyMatrixNode } from './adjacency-matrix.js';
 import { applyPlanFixesNode } from './apply-plan-fixes.js';
 import { compareReviewsNode } from './compare-reviews.js';
+import { exportDxfNode } from './export-dxf.js';
 import { exportTableCsvNode } from './export-csv.js';
 import { generateBimModelNode } from './bim-model.js';
 import { generateComplianceReportNode } from './compliance-report.js';
@@ -43,6 +44,7 @@ export * from './shapes.js';
 export { adjacencyMatrixNode, type AdjacencyMatrixParams } from './adjacency-matrix.js';
 export { applyPlanFixesNode, type ApplyPlanFixesParams } from './apply-plan-fixes.js';
 export { compareReviewsNode, type CompareReviewsParams } from './compare-reviews.js';
+export { exportDxfNode, type ExportDxfParams } from './export-dxf.js';
 export { exportTableCsvNode, type ExportTableCsvParams } from './export-csv.js';
 export { generateBimModelNode, type GenerateBimModelParams } from './bim-model.js';
 export { generateComplianceReportNode, type GenerateComplianceReportParams } from './compliance-report.js';
@@ -74,6 +76,7 @@ const AEC_NODES: readonly NodeModule<unknown>[] = [
   applyPlanFixesNode,
   generateRoomScheduleNode,
   exportTableCsvNode,
+  exportDxfNode,
   compareReviewsNode,
   generateComplianceReportNode,
 ] as NodeModule<unknown>[];
