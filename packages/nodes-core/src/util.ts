@@ -38,6 +38,15 @@ const IFC_B64 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_
 /**
  * Deterministic 22-char pseudo-GUID in the IFC base64 alphabet, derived from a
  * stable key (plan id + entity id). Same key ⇒ same GUID, always.
+ *
+ * The first character is drawn from only the first four symbols of the
+ * alphabet, and that is not an arbitrary restriction. An IfcGloballyUniqueId
+ * packs a 128-bit UUID into 22 base64 characters, and 22 × 6 = 132 — so the
+ * leading character carries just the top 2 bits and can only ever be 0, 1, 2
+ * or 3. Drawing it from all 64 symbols, as this did until IfcOpenShell's
+ * validator was pointed at the output, makes roughly 94% of the GUIDs in every
+ * model fail `IfcGloballyUniqueId` validation. The file still parses and still
+ * opens; it is simply, quietly, not conformant.
  */
 export function ifcGuid(key: string): string {
   // Two independent hash seeds keep the effective key space well past 32 bits.
@@ -45,7 +54,8 @@ export function ifcGuid(key: string): string {
   const b = mulberry32(fnv1a(`${key}\u0000ifc-guid`));
   let out = '';
   for (let i = 0; i < 22; i++) {
-    out += IFC_B64[(Math.floor(a() * 64) ^ Math.floor(b() * 64)) & 63];
+    const mask = i === 0 ? 3 : 63;
+    out += IFC_B64[(Math.floor(a() * 64) ^ Math.floor(b() * 64)) & mask];
   }
   return out;
 }

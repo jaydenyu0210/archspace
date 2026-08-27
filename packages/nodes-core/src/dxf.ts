@@ -87,28 +87,45 @@ function real(n: number): string {
 }
 
 /**
+ * The 32 characters cp1252 places in 0x80–0x9F, where Latin-1 has controls.
+ *
+ * Everything else in cp1252 is Latin-1, i.e. the code point is the byte. This
+ * table is the entire difference between the two.
+ */
+const CP1252_HIGH = '\u20AC\u0081\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\u0160\u2039\u0152\u008D\u017D\u008F'
+  + '\u0090\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u02DC\u2122\u0161\u203A\u0153\u009D\u017E\u0178';
+
+/** The cp1252 byte for a character, or -1 if the codepage cannot hold it. */
+function cp1252Byte(cu: number): number {
+  if (cu < 0x80 || (cu >= 0xa0 && cu <= 0xff)) return cu;
+  const high = CP1252_HIGH.indexOf(String.fromCharCode(cu));
+  return high === -1 ? -1 : 0x80 + high;
+}
+
+/**
  * A string safe to sit on a DXF value line.
  *
  * Two problems, both invisible until the file reaches a real reader.
  *
  * **Newlines split the record.** A DXF file is code line / value line, forever.
  * A room name containing a newline does not produce a wrapped label — it makes
- * every following line in the file land on the wrong side of the pairing, which
- * is unrecoverable corruption from that byte onward. Nothing upstream forbids a
- * newline in a room name, so this is the writer's job.
+ * every following line in the file land on the wrong side of the pairing.
+ * Readers report this as `Invalid group code "Room 12.00 m2"`, pointing at
+ * wherever the damage surfaced rather than where it started. Nothing upstream
+ * forbids a newline in a room name, so this is the writer's job.
  *
- * **Non-ASCII is read in the reader's codepage, not ours.** R12 predates
- * Unicode: a reader decodes the bytes as its own single-byte codepage (cp1252,
- * typically), so UTF-8 output arrives as mojibake — "m²" reads as "mÂ²".
- * Escaping to `\U+XXXX` is the mechanism AutoCAD itself uses when saving a
- * Unicode drawing back to R12, so it is what readers expect; a reader that does
- * not decode it shows a legible escape rather than a corrupted glyph. The
- * happy side effect is that the whole file is then pure ASCII, which every
- * codepage agrees on — so `$DWGCODEPAGE` need not be guessed at.
+ * **Non-ASCII is read in the file's declared codepage.** R12 predates Unicode;
+ * UTF-8 only arrives with R2007. The header declares `ANSI_1252`, so the bytes
+ * must be cp1252 — write UTF-8 into a cp1252 file and "Küche" arrives as
+ * "KÃ¼che". Characters cp1252 can represent are therefore kept as-is and
+ * encoded at the byte layer by `encodeCp1252`; the rest fall back to AutoCAD's
+ * `\U+XXXX` escape, which is the only mechanism R12 has for them.
  *
- * Iteration is by UTF-16 code unit rather than code point, so an astral
- * character becomes its two surrogate escapes — again matching what AutoCAD
- * writes.
+ * The escape is the fallback rather than the rule because it is not universally
+ * decoded — ezdxf returns it as a literal string — whereas a correctly encoded
+ * cp1252 byte is right in every reader. So accented Latin, which is the case
+ * that actually occurs in room names, survives everywhere; CJK degrades to an
+ * escape that is at least legible and obviously an escape.
  */
 function text(s: string): string {
   let out = '';
@@ -117,16 +134,55 @@ function text(s: string): string {
     // A newline would break the pairing; a space keeps the label readable.
     if (cu === 0x0a || cu === 0x0d) {
       out += ' ';
-    } else if (cu < 0x20 || cu === 0x7f) {
-      // Other control characters carry no meaning in a drawing label.
       continue;
-    } else if (cu < 0x7f) {
-      out += s[i];
-    } else {
-      out += `\\U+${cu.toString(16).toUpperCase().padStart(4, '0')}`;
     }
+    // Other control characters carry no meaning in a drawing label.
+    if (cu < 0x20 || cu === 0x7f) continue;
+    out += cp1252Byte(cu) === -1
+      ? `\\U+${cu.toString(16).toUpperCase().padStart(4, '0')}`
+      : s[i];
   }
   return out;
+}
+
+/**
+ * DXF text as cp1252 bytes, matching the `$DWGCODEPAGE` the header declares.
+ *
+ * Separate from `writeDxf` so the writer stays a pure string function that
+ * tests can read, with the encoding applied once at the boundary. Every
+ * character reaching here has already been through `text()`, so the codepage
+ * cannot fail — the throw is a guard against a future caller, not a case that
+ * arises.
+ */
+export function encodeCp1252(dxf: string): Uint8Array {
+  const bytes = new Uint8Array(dxf.length);
+  for (let i = 0; i < dxf.length; i++) {
+    const byte = cp1252Byte(dxf.charCodeAt(i));
+    if (byte === -1) {
+      throw new RangeError(`dxf: U+${dxf.charCodeAt(i).toString(16)} is not representable in cp1252`);
+    }
+    bytes[i] = byte;
+  }
+  return bytes;
+}
+
+/**
+ * A layer name, checked against R12's rules for a symbol name.
+ *
+ * R12 symbol names are not free text: letters, digits, `$`, `-` and `_` only,
+ * at most 31 characters, and no spaces. A name outside that is another file
+ * that some readers accept and AutoCAD does not, so it is rejected here rather
+ * than silently rewritten — quietly renaming a layer would break the match
+ * between the LAYER table and the entities referring to it, which is a worse
+ * failure than an error the caller can see.
+ */
+function symbolName(name: string): string {
+  if (!/^[A-Za-z0-9$_-]{1,31}$/.test(name)) {
+    throw new RangeError(
+      `dxf: "${name}" is not a valid R12 layer name (letters, digits, $ - _ only, 1-31 characters)`,
+    );
+  }
+  return name;
 }
 
 /** The HEADER section: the few variables a reader actually consults. */
@@ -138,11 +194,22 @@ function header(bounds: { min: Point; max: Point }): Pair[] {
     // emit is the fastest way to be rejected.
     [9, '$ACADVER'],
     [1, 'AC1009'],
+    // The codepage the text bytes are in. R12 has no UTF-8 mode, so a reader
+    // decodes by this declaration; `encodeCp1252` writes bytes to match.
+    [9, '$DWGCODEPAGE'],
+    [3, 'ANSI_1252'],
     // Millimetres. R12 predates $INSUNITS, so a strict R12 reader ignores it —
     // it is emitted anyway because every modern reader honours it, and without
     // it a plan drawn in millimetres opens as though it were inches.
     [9, '$INSUNITS'],
     [70, '4'],
+    // Metric, and decimal display. Neither declares the unit — $INSUNITS does
+    // that — but a reader that has ignored $INSUNITS still picks sane defaults
+    // from these rather than falling back to imperial.
+    [9, '$MEASUREMENT'],
+    [70, '1'],
+    [9, '$LUNITS'],
+    [70, '2'],
     // Drawing extents. Absent or wrong, "zoom extents" lands the user somewhere
     // that looks empty, which is indistinguishable from a file that failed to
     // load — the single most common way a technically-valid DXF reads as broken.
@@ -189,9 +256,19 @@ function tables(layers: readonly DxfLayer[]): Pair[] {
   ];
 
   for (const layer of layers) {
+    // Two silent failures guarded in one line. A negative 62 means "layer off"
+    // — the file loads with no complaint and draws nothing. And a group code in
+    // the integer range given a decimal value ("7.0") makes libdxfrw, which is
+    // LibreCAD and QCAD, reject the entire file, while lenient readers coerce
+    // it and hide the problem.
+    if (!Number.isInteger(layer.color) || layer.color < 1 || layer.color > 255) {
+      throw new RangeError(
+        `dxf: layer "${layer.name}" needs an integer ACI colour in 1..255, got ${String(layer.color)}`,
+      );
+    }
     out.push(
       [0, 'LAYER'],
-      [2, text(layer.name)],
+      [2, symbolName(layer.name)],
       // Flags. 0 means a perfectly ordinary layer: not frozen, not locked, not
       // off. A frozen layer draws nothing, which looks exactly like a file that
       // exported nothing.
@@ -201,7 +278,33 @@ function tables(layers: readonly DxfLayer[]): Pair[] {
     );
   }
 
-  out.push([0, 'ENDTAB'], [0, 'ENDSEC']);
+  out.push(
+    [0, 'ENDTAB'],
+
+    // STANDARD is what a TEXT entity with no explicit style resolves to, and an
+    // undefined symbol is the same class of hazard as an undefined linetype:
+    // AutoCAD refuses files that reference one, while lenient readers quietly
+    // substitute a default and a local test proves nothing. Code 40 must be 0 —
+    // a non-zero fixed height on the style silently overrides every TEXT's own
+    // height. Code 4 is the big-font name: the code line is followed by an
+    // empty value line, which is a real record and not an omitted one.
+    [0, 'TABLE'],
+    [2, 'STYLE'],
+    [70, '1'],
+    [0, 'STYLE'],
+    [2, 'STANDARD'],
+    [70, '0'],
+    [40, '0.0'],
+    [41, '1.0'],
+    [50, '0.0'],
+    [71, '0'],
+    [42, '2.5'],
+    [3, 'txt'],
+    [4, ''],
+    [0, 'ENDTAB'],
+
+    [0, 'ENDSEC'],
+  );
   return out;
 }
 
@@ -211,7 +314,7 @@ function entity(e: DxfEntity): Pair[] {
     case 'line':
       return [
         [0, 'LINE'],
-        [8, text(e.layer)],
+        [8, symbolName(e.layer)],
         [10, real(e.from[0])],
         [20, real(e.from[1])],
         [30, '0.0'],
@@ -227,7 +330,7 @@ function entity(e: DxfEntity): Pair[] {
       // 10/20/30 point is required even though it is always zero and unused.
       const out: Pair[] = [
         [0, 'POLYLINE'],
-        [8, text(e.layer)],
+        [8, symbolName(e.layer)],
         [66, '1'],
         [70, e.closed ? '1' : '0'],
         [10, '0.0'],
@@ -235,16 +338,16 @@ function entity(e: DxfEntity): Pair[] {
         [30, '0.0'],
       ];
       for (const [x, y] of e.points) {
-        out.push([0, 'VERTEX'], [8, text(e.layer)], [10, real(x)], [20, real(y)], [30, '0.0']);
+        out.push([0, 'VERTEX'], [8, symbolName(e.layer)], [10, real(x)], [20, real(y)], [30, '0.0']);
       }
-      out.push([0, 'SEQEND'], [8, text(e.layer)]);
+      out.push([0, 'SEQEND'], [8, symbolName(e.layer)]);
       return out;
     }
 
     case 'circle':
       return [
         [0, 'CIRCLE'],
-        [8, text(e.layer)],
+        [8, symbolName(e.layer)],
         [10, real(e.centre[0])],
         [20, real(e.centre[1])],
         [30, '0.0'],
@@ -252,6 +355,11 @@ function entity(e: DxfEntity): Pair[] {
       ];
 
     case 'text':
+      // A TEXT with height 0 draws nothing and audits perfectly clean, which is
+      // the worst combination available.
+      if (!(e.height > 0)) {
+        throw new RangeError(`dxf: text "${e.text}" needs a positive height, got ${String(e.height)}`);
+      }
       // Centre-justified, which for DXF means BOTH alignment codes and BOTH
       // points. When 72 is non-zero the 10/20 point is ignored and the 11/21
       // "second alignment point" is what positions the text — so a writer that
@@ -260,13 +368,17 @@ function entity(e: DxfEntity): Pair[] {
       // deliberate.
       return [
         [0, 'TEXT'],
-        [8, text(e.layer)],
+        [8, symbolName(e.layer)],
         [10, real(e.at[0])],
         [20, real(e.at[1])],
         [30, '0.0'],
         [40, real(e.height)],
         [1, text(e.text)],
+        // 72 centres horizontally, 73 vertically. Without 73 the baseline sits
+        // on the point, so a room label rides above its own centroid by most of
+        // its height — subtle enough to look intentional and wrong at any scale.
         [72, '1'],
+        [73, '2'],
         [11, real(e.at[0])],
         [21, real(e.at[1])],
         [31, '0.0'],
@@ -302,6 +414,11 @@ function extents(entities: readonly DxfEntity[]): { min: Point; max: Point } {
         see(e.centre[0] + e.radius, e.centre[1] + e.radius);
         break;
       case 'text':
+      // A TEXT with height 0 draws nothing and audits perfectly clean, which is
+      // the worst combination available.
+      if (!(e.height > 0)) {
+        throw new RangeError(`dxf: text "${e.text}" needs a positive height, got ${String(e.height)}`);
+      }
         see(e.at[0], e.at[1]);
         break;
     }
@@ -317,15 +434,23 @@ function extents(entities: readonly DxfEntity[]): { min: Point; max: Point } {
 /**
  * Serialise a drawing to DXF text.
  *
- * Line endings are LF, matching every other text artefact this project writes
- * (the IFC model, the CSV export, the markdown reports). DXF is historically a
- * CRLF format and readers accept either; consistency within the project is
- * worth more than matching a convention that no reader enforces.
+ * Line endings are CRLF, which is what AutoCAD itself emits. LF was the first
+ * choice, for consistency with every other text artefact this project writes —
+ * but consistency inside the repository is the wrong thing to optimise for in a
+ * file whose entire purpose is to be opened somewhere else. Readers mostly
+ * accept either (libdxfrw strips one trailing CR, ezdxf reads both), and
+ * "mostly" is the reason to match the convention rather than the project.
  */
 export function writeDxf(drawing: DxfDrawing): string {
   const pairs: Pair[] = [
     ...header(extents(drawing.entities)),
     ...tables(drawing.layers),
+    // Empty, and present anyway. This writer defines no blocks, but AutoCAD's
+    // own R12 output always carries a BLOCKS section and some readers expect
+    // the four-section shape. Four lines to remove a question.
+    [0, 'SECTION'],
+    [2, 'BLOCKS'],
+    [0, 'ENDSEC'],
     [0, 'SECTION'],
     [2, 'ENTITIES'],
     ...drawing.entities.flatMap(entity),
@@ -334,6 +459,13 @@ export function writeDxf(drawing: DxfDrawing): string {
   ];
 
   // Every pair is two lines, and the file ends on a newline so it terminates on
-  // a record boundary.
-  return `${pairs.map(([code, value]) => `${code}\n${value}`).join('\n')}\n`;
+  // a record boundary — 0/EOF is the last record, and a reader that does not
+  // find it rejects the whole file.
+  // Group codes are right-justified in a three-character field, which is what
+  // AutoCAD's DXFOUT emits. The DXFIN format is free-form so nothing requires
+  // it — but matching the reference output costs two bytes a line and removes
+  // one more way to differ from a file that is known to open. Value lines are
+  // never padded: leading whitespace there becomes part of the string, so a
+  // padded layer name would define a layer nothing refers to.
+  return `${pairs.map(([code, value]) => `${String(code).padStart(3)}\r\n${value}`).join('\r\n')}\r\n`;
 }

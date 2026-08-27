@@ -20,3 +20,4 @@ Format: MADR-lite (Context → Decision → Consequences → Alternatives). Stat
 | [0013](0013-testing-strategy.md) | Headless-first testing with property suites and testkit | Accepted |
 | [0014](0014-windows-packaging.md) | Windows build shipped unsigned; macOS stays primary | Accepted |
 | [0015](0015-dxf-export.md) | Floor plans export as hand-written DXF R12; no DWG, no invented door swings | Accepted |
+| [0016](0016-ifc-geometry.md) | IFC gains real swept-solid geometry, verified against IfcOpenShell | Accepted |

@@ -99,8 +99,11 @@ substituted later without redesigning a single workflow.
   exits and labels, on properly named layers, one set per storey. This is the
   one output with actual drawable geometry.
 - **IFC** (`generate_bim_model`) — a real IFC4 file with a correct spatial
-  hierarchy of storeys, spaces, walls and doors. **It contains no geometry**, so
-  an IFC viewer shows the structure tree over an empty 3D view.
+  hierarchy of storeys, spaces, walls and doors, and 3D geometry for every one
+  of them. It opens in an IFC viewer as a building you can walk through. Doors
+  are solids standing at their position rather than openings cut into walls, and
+  there are no floor slabs — the floor plan simply does not say which wall a
+  door belongs to, or where the floor plate ends.
 - **CSV** (`export_table_csv`) — ordinary RFC 4180.
 - **No DWG.** DXF is the interchange format; DWG is proprietary.
 
@@ -167,7 +170,7 @@ Needs [Node](https://nodejs.org) (version in `.nvmrc`) and
 ```sh
 pnpm install
 pnpm dev      # run the app
-pnpm test     # 1033 tests across 12 packages
+pnpm test     # 1057 tests across 12 packages
 ```
 
 Run a workflow with no UI — a real feature, not a test harness:

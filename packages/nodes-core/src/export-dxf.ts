@@ -25,7 +25,7 @@
  */
 import type { NodeModule } from '@archspace/node-sdk';
 import type { FloorPlanLevel, FloorPlanResult, PlanRoom } from './shapes.js';
-import { writeDxf, type DxfEntity, type DxfLayer, type Point } from './dxf.js';
+import { encodeCp1252, writeDxf, type DxfEntity, type DxfLayer, type Point } from './dxf.js';
 import { requireInput, round2 } from './util.js';
 
 export interface ExportDxfParams {
@@ -306,7 +306,9 @@ export const exportDxfNode: NodeModule<ExportDxfParams> = {
     }
 
     const dxf = writeDxf({ layers, entities });
-    const ref = await ctx.assets.put(new TextEncoder().encode(dxf), {
+    // cp1252, not UTF-8: the file's own header declares ANSI_1252 and R12 has
+    // no Unicode mode, so UTF-8 bytes would arrive as mojibake in every reader.
+    const ref = await ctx.assets.put(encodeCp1252(dxf), {
       // The IANA-registered type for DXF. `application/dxf` is common in the
       // wild but unregistered.
       mediaType: 'image/vnd.dxf',

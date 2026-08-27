@@ -27,7 +27,25 @@ import {
   type FloorPlanResult,
 } from '../src/index.js';
 import { polygonCentroid, wallOutline } from '../src/export-dxf.js';
-import { writeDxf, type DxfDrawing } from '../src/dxf.js';
+import { encodeCp1252, writeDxf, type DxfDrawing } from '../src/dxf.js';
+
+/**
+ * cp1252 bytes back to characters.
+ *
+ * `TextDecoder` only speaks UTF-8 here, and decoding a cp1252 file as UTF-8 is
+ * precisely the mistake the writer exists to avoid — a test that made it would
+ * be validating the writer against its own error.
+ */
+const CP1252_HIGH = '\u20AC\u0081\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\u0160\u2039\u0152\u008D\u017D\u008F'
+  + '\u0090\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u02DC\u2122\u0161\u203A\u0153\u009D\u017E\u0178';
+
+function decodeCp1252(bytes: Uint8Array): string {
+  let out = '';
+  for (const b of bytes) {
+    out += b >= 0x80 && b <= 0x9f ? (CP1252_HIGH[b - 0x80] as string) : String.fromCharCode(b);
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------- parsing ---
 
@@ -41,14 +59,21 @@ type Pair = [number, string];
  * bug worth failing on rather than tolerating.
  */
 function parse(text: string): Pair[] {
-  const lines = text.split('\n');
-  // The file ends with a newline, so the final split element is an empty tail.
+  // CRLF is the record separator, and a bare LF anywhere would mean a value
+  // line carrying a stray CR into whatever reads it.
+  expect(text.replace(/\r\n/g, ''), 'no bare LF outside a CRLF pair').not.toContain('\n');
+  const lines = text.split('\r\n');
+  // The file ends with a separator, so the final split element is an empty tail.
   if (lines.at(-1) === '') lines.pop();
   expect(lines.length % 2, 'DXF must be an even number of lines (code/value pairs)').toBe(0);
 
   const pairs: Pair[] = [];
   for (let i = 0; i < lines.length; i += 2) {
     const raw = lines[i] as string;
+    // Codes are right-justified in three columns; value lines must never be,
+    // because leading whitespace there is part of the string.
+    expect(raw, `line ${i + 1}: group code padded to three columns`).toMatch(/^ *\d+$/);
+    expect(lines[i + 1] as string, `line ${i + 2}: value not padded`).not.toMatch(/^ /);
     const code = Number(raw.trim());
     expect(Number.isInteger(code), `line ${i + 1}: group code "${raw}" is not an integer`).toBe(true);
     pairs.push([code, lines[i + 1] as string]);
@@ -129,7 +154,7 @@ async function exportPlan(params: Record<string, unknown> = {}): Promise<Exporte
   });
 
   const ref = dxf.outputs.dxf as AssetRef;
-  const text = new TextDecoder().decode(await assets.bytes(ref));
+  const text = decodeCp1252(await assets.bytes(ref));
   return {
     text,
     pairs: parse(text),
@@ -148,12 +173,29 @@ describe('DXF file structure', () => {
     const sections = pairs
       .map(([c, v], i) => (c === 0 && v === 'SECTION' ? pairs[i + 1]?.[1] : undefined))
       .filter((s): s is string => s !== undefined);
-    expect(sections).toEqual(['HEADER', 'TABLES', 'ENTITIES']);
+    expect(sections).toEqual(['HEADER', 'TABLES', 'BLOCKS', 'ENTITIES']);
 
     expect(pairs.at(-1)).toEqual([0, 'EOF']);
     expect(headerVar(pairs, '$ACADVER')).toEqual([[1, 'AC1009']]);
     // Millimetres. A plan drawn in mm and read as inches is off by 25.4×.
     expect(headerVar(pairs, '$INSUNITS')).toEqual([[70, '4']]);
+    expect(headerVar(pairs, '$MEASUREMENT')).toEqual([[70, '1']]);
+    // The codepage the bytes are actually in — see the encoding tests below.
+    expect(headerVar(pairs, '$DWGCODEPAGE')).toEqual([[3, 'ANSI_1252']]);
+  });
+
+  it('defines STANDARD, which every unstyled TEXT resolves to', () => {
+    // Same hazard as an undefined linetype: AutoCAD refuses a file that
+    // references an undefined symbol, while lenient readers substitute a
+    // default and a local test proves nothing.
+    const pairs = parse(writeDxf({ layers: [], entities: [] }));
+    const styles = entities(section(pairs, 'TABLES')).filter((e) => e.type === 'STYLE');
+    expect(styles.map((e) => code(e, 2))).toEqual(['STANDARD']);
+    // A non-zero fixed height here silently overrides every TEXT's own height.
+    expect(code(styles[0] as Entity, 40)).toBe('0.0');
+    // The big-font name is an empty value line, not an omitted one; omitting it
+    // shifts every following record onto the wrong side of the pairing.
+    expect(code(styles[0] as Entity, 4)).toBe('');
   });
 
   it('declares extents that actually contain the geometry', async () => {
@@ -285,7 +327,10 @@ describe('DXF entities', () => {
 
     for (const t of texts) {
       expect(code(t, 40)).toBe('250.000000');
+      // Centred both ways, so the label sits on the centroid rather than
+      // resting its baseline there.
       expect(code(t, 72)).toBe('1');
+      expect(code(t, 73)).toBe('2');
       // The trap: with 72 non-zero, 10/20 is ignored and 11/21 positions the
       // text. Omit 11/21 and every label lands on the origin in a heap.
       expect(code(t, 11)).toBe(code(t, 10));
@@ -308,7 +353,9 @@ describe('DXF entities', () => {
     for (const room of rooms) {
       expect(labels.some((l) => l.startsWith(`${room.name} `))).toBe(true);
     }
-    // ASCII, deliberately: see roomLabel in export-dxf.ts.
+    // ASCII, deliberately: see roomLabel in export-dxf.ts. The writer could
+    // carry "m²" through cp1252 now, but a label this node composes itself has
+    // no reason to depend on the codepage at all.
     for (const label of labels) expect(label).toMatch(/ - [\d.]+ m2$/);
     for (const label of labels) expect(label).toMatch(/^[\x20-\x7e]*$/);
   });
@@ -456,24 +503,44 @@ describe('text values a reader will not mangle', () => {
     return code(texts[0] as Entity, 1) as string;
   }
 
-  it('never emits a byte above ASCII, whatever it is handed', () => {
+  it('round-trips through cp1252, the codepage the header declares', () => {
+    // The claim under test, stated as bytes: what the reader decodes is what
+    // the writer meant. Writing UTF-8 into a file that declares ANSI_1252 is
+    // how "Küche" arrives as "KÃ¼che", and a test that decoded as UTF-8 would
+    // reproduce the writer's mistake rather than catch it.
+    const label = 'Küche — 12 m² • “A”';
+    // The layer name stays a plain R12 symbol; it is the text *value* that has
+    // to survive the codepage, and only values carry user-typed characters.
     const out = writeDxf({
-      layers: [{ name: 'Café', color: 7 }],
-      entities: [{ kind: 'text', layer: 'Café', at: [0, 0], height: 10, text: '会議室 — 12 m² … ✓' }],
+      layers: [{ name: 'A-AREA-IDEN', color: 7 }],
+      entities: [{ kind: 'text', layer: 'A-AREA-IDEN', at: [0, 0], height: 10, text: label }],
     });
-    // The whole point, stated as bytes rather than characters: a reader
-    // decoding R12 in its own single-byte codepage sees exactly what we meant,
-    // because every codepage agrees on the bytes below 0x7f.
-    const bytes = [...new TextEncoder().encode(out)];
-    expect(bytes.filter((b) => b > 0x7e)).toEqual([]);
-    expect(bytes.filter((b) => b < 0x20 && b !== 0x0a)).toEqual([]);
+    const bytes = encodeCp1252(out);
+    expect(bytes.length).toBe(out.length);
+    expect(decodeCp1252(bytes)).toBe(out);
+
+    const texts = entities(section(parse(decodeCp1252(bytes)), 'ENTITIES'));
+    expect(code(texts[0] as Entity, 1)).toBe(label);
+    // No control bytes beyond the CR and LF of the record separators.
+    expect([...bytes].filter((b) => b < 0x20 && b !== 0x0a && b !== 0x0d)).toEqual([]);
   });
 
-  it('escapes non-ASCII the way AutoCAD does when saving to R12', () => {
-    expect(labelFor('12 m²')).toBe('12 m\\U+00B2');
-    expect(labelFor('Café — B')).toBe('Caf\\U+00E9 \\U+2014 B');
+  it('escapes only what cp1252 cannot hold, the way AutoCAD does', () => {
+    // Kept, because cp1252 has them — and a real byte beats an escape that
+    // some readers show literally.
+    expect(labelFor('12 m²')).toBe('12 m²');
+    expect(labelFor('Café — B')).toBe('Café — B');
+    // Outside cp1252 there is no byte to write, so the escape is the only
+    // mechanism R12 offers.
+    expect(labelFor('会議室')).toBe('\\U+4F1A\\U+8B70\\U+5BA4');
     // Astral characters become their surrogate pair, as AutoCAD writes them.
     expect(labelFor('\u{1F600}')).toBe('\\U+D83D\\U+DE00');
+  });
+
+  it('refuses to encode a character the declared codepage cannot represent', () => {
+    // Unreachable through writeDxf, since text() escapes those first — this
+    // guards the boundary against a future caller that bypasses it.
+    expect(() => encodeCp1252('会')).toThrow(/cp1252/);
   });
 
   it('keeps a newline in a room name from corrupting the whole file', () => {
@@ -495,21 +562,51 @@ describe('text values a reader will not mangle', () => {
     expect(code(drawn[0] as Entity, 1)).toBe('Meeting Room  2');
   });
 
-  it('sanitises a layer name identically wherever it appears', () => {
+  it('spells a layer name identically in the table and on the entity', () => {
     // A layer defined under one spelling and referenced under another is a
-    // dangling reference, which is worse than either spelling alone.
+    // dangling reference, which is worse than either spelling alone — so the
+    // name goes through one function, used in both places.
     const pairs = parse(
       writeDxf({
-        layers: [{ name: 'Zone\nÉ', color: 7 }],
-        entities: [{ kind: 'circle', layer: 'Zone\nÉ', centre: [0, 0], radius: 1 }],
+        layers: [{ name: 'A-ZONE_2-L0', color: 7 }],
+        entities: [{ kind: 'circle', layer: 'A-ZONE_2-L0', centre: [0, 0], radius: 1 }],
       }),
     );
     const defined = entities(section(pairs, 'TABLES'))
       .filter((e) => e.type === 'LAYER')
       .map((e) => code(e, 2));
-    const used = entities(section(pairs, 'ENTITIES')).map((e) => code(e, 8));
-    expect(defined).toEqual(['Zone \\U+00C9']);
-    expect(used).toEqual(defined);
+    expect(defined).toEqual(['A-ZONE_2-L0']);
+    expect(entities(section(pairs, 'ENTITIES')).map((e) => code(e, 8))).toEqual(defined);
+  });
+
+  it('rejects a layer name R12 cannot hold, rather than rewriting it', () => {
+    // Symbol names are letters, digits, $ - _ and at most 31 characters. Silent
+    // rewriting would desynchronise the table from the entities referring to it.
+    const draw = (name: string): DxfDrawing => ({
+      layers: [{ name, color: 7 }],
+      entities: [{ kind: 'circle', layer: name, centre: [0, 0], radius: 1 }],
+    });
+    expect(() => writeDxf(draw('Zone É'))).toThrow(/valid R12 layer name/);
+    expect(() => writeDxf(draw('has a space'))).toThrow(/valid R12 layer name/);
+    expect(() => writeDxf(draw('x'.repeat(32)))).toThrow(/valid R12 layer name/);
+    expect(() => writeDxf(draw(''))).toThrow(/valid R12 layer name/);
+    expect(() => writeDxf(draw('x'.repeat(31)))).not.toThrow();
+  });
+
+  it('rejects a layer colour that would silently hide the layer', () => {
+    // A negative 62 means "off": the file loads clean and draws nothing. A
+    // decimal in an integer group code makes libdxfrw reject the entire file.
+    const withColor = (color: number): DxfDrawing => ({ layers: [{ name: 'A-X', color }], entities: [] });
+    expect(() => writeDxf(withColor(-7))).toThrow(/1\.\.255/);
+    expect(() => writeDxf(withColor(0))).toThrow(/1\.\.255/);
+    expect(() => writeDxf(withColor(7.5))).toThrow(/1\.\.255/);
+    expect(() => writeDxf(withColor(256))).toThrow(/1\.\.255/);
+  });
+
+  it('rejects a text height of zero, which draws nothing and audits clean', () => {
+    expect(() =>
+      writeDxf({ layers: [], entities: [{ kind: 'text', layer: 'A-X', at: [0, 0], height: 0, text: 'x' }] }),
+    ).toThrow(/positive height/);
   });
 });
 
