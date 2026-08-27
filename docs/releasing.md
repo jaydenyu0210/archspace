@@ -74,6 +74,42 @@ electron-builder with an opaque keychain error.)
 decorative. Set `GH_TOKEN` only if you need the draft Release created under an
 account other than the workflow's own token.
 
+### 2.0 Step zero: joining the Apple Developer Program
+
+Both macOS secrets below are issued *to a member*, so nothing in §2.1 or §2.2 is
+obtainable until this is done. It is the only part with a lead time measured in
+days rather than minutes, so start it first.
+
+1. **Enrol at <https://developer.apple.com/programs/enroll/>** with the Apple ID
+   you want to own the app's identity — this is a long-lived choice, so prefer a
+   team or role account over a personal one. Two-factor authentication is
+   required on that Apple ID.
+2. **Choose Individual or Organization.**
+   - *Individual / sole trader* — fastest. Identity is verified from a
+     government-issued ID, and Apple may ask you to complete that step in the
+     **Apple Developer** app on an iPhone or iPad. Typically approved within a
+     day or two.
+   - *Organization* — the app is published under a company name rather than a
+     person's. Requires a **D-U-N-S number** for the legal entity (free from
+     Dun & Bradstreet, but obtaining one can itself take days) plus evidence of
+     authority to bind the company. Budget weeks, not days.
+3. **Pay the membership**: $99 USD/year, renewing annually. **If it lapses, Apple
+   revokes the Developer ID certificate** and every signed build stops
+   validating — see the note at the end of §2.1 about why a revoked certificate
+   is worse than no certificate here.
+4. Once approved, <https://developer.apple.com/account> shows Certificates,
+   Identifiers & Profiles, and <https://appstoreconnect.apple.com> shows Users
+   and Access. Those are the two pages §2.1 and §2.2 use.
+
+**You also need a Mac.** §2.1 generates the certificate signing request in
+Keychain Access, and the private key it creates stays on that machine — a
+certificate issued against a CSR made elsewhere cannot sign anything here.
+
+None of this is needed for the Windows build, which is unsigned by decision
+([ADR-0014](adr/0014-windows-packaging.md) §2), or for CI, or for the app to
+run. It buys exactly one thing: a macOS download that opens without Gatekeeper
+refusing it.
+
 ### 2.1 `CSC_LINK` and `CSC_KEY_PASSWORD` — the Developer ID certificate
 
 A **Developer ID Application** certificate is the identity Apple issues to a
