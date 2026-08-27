@@ -29,6 +29,8 @@
  *     pnpm --filter @archspace/app build && pnpm --filter @archspace/app smoke
  */
 import { spawn } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -39,6 +41,18 @@ const DEADLINE_MS = 40_000;
 
 /** The four settings tabs, and the menu action that opens each. */
 const SETTINGS_TABS = ['mcp', 'ai', 'plugins', 'autodesk'];
+
+/**
+ * A throwaway userData directory, for two reasons.
+ *
+ * It keeps the run from writing to the developer's real profile — this script
+ * grants plugin consent, which persists, so without isolation running it once
+ * silently changed the state every later run observed. And it makes the run
+ * DETERMINISTIC: a fresh profile always starts with the bundled plugin
+ * unconsented and the example freshly copied, which is the state the flow below
+ * is actually asserting about.
+ */
+const USER_DATA = await mkdtemp(join(tmpdir(), 'archspace-smoke-'));
 
 /**
  * Refuse to run if something is already listening. Without this the script
@@ -69,6 +83,7 @@ const child = spawn(
     // opens an empty canvas — which still "renders", so this script would pass
     // while testing something no user will ever run.
     '.',
+    `--user-data-dir=${USER_DATA}`,
     `--remote-debugging-port=${PORT}`,
     // The settings dialog opens from the native menu, which only main can
     // trigger. Inspecting main is how this drives it without a test-only hook
@@ -83,6 +98,7 @@ child.stderr.on('data', (b) => (electronOutput += b));
 
 const fail = (message) => {
   child.kill('SIGKILL');
+  void rm(USER_DATA, { recursive: true, force: true });
   console.error(`smoke: ${message}`);
   if (electronOutput.trim()) console.error(`\n--- electron output ---\n${electronOutput.trim()}`);
   process.exit(1);
@@ -175,10 +191,11 @@ const mainTargets = await (await fetch(`http://127.0.0.1:${MAIN_INSPECT_PORT}/js
 const mainWs = new WebSocket(mainTargets[0].webSocketDebuggerUrl);
 await new Promise((r) => mainWs.addEventListener('open', r));
 
-const panels = [];
-for (const [i, tab] of SETTINGS_TABS.entries()) {
+/** Fire the native menu item that opens one settings tab, from main. */
+let menuSeq = 500;
+async function openSettingsTab(tab) {
   mainWs.send(JSON.stringify({
-    id: 500 + i,
+    id: ++menuSeq,
     method: 'Runtime.evaluate',
     params: {
       expression: `require('electron').BrowserWindow.getAllWindows()[0].webContents.send('menu','settings-${tab}'), 'ok'`,
@@ -186,7 +203,12 @@ for (const [i, tab] of SETTINGS_TABS.entries()) {
     },
   }));
   await new Promise((r) => setTimeout(r, 900));
-  const seen = await evaluate(ws, 600 + i, `JSON.stringify({
+}
+
+const panels = [];
+for (const tab of SETTINGS_TABS) {
+  await openSettingsTab(tab);
+  const seen = await evaluate(ws, 600 + panels.length, `JSON.stringify({
     open: !!document.querySelector('[role=dialog]'),
     active: document.querySelector('[role=tab][aria-selected=true]')?.innerText ?? null,
     chars: document.querySelector('.settings-panel')?.innerText?.length ?? 0,
@@ -199,10 +221,60 @@ for (const [i, tab] of SETTINGS_TABS.entries()) {
   if (seen.chars < 200) fail(`the "${tab}" panel rendered ${seen.chars} characters — effectively blank`);
   panels.push(`${tab}:${seen.chars}`);
 }
+/**
+ * The out-of-the-box flow, end to end, because it is the one that matters and
+ * the one no other test can reach: consent to the bundled plugin through the
+ * UI, then run the bundled example.
+ *
+ * Passing it means the consent UI wrote a grant, the plugin host read it,
+ * spawned a process, loaded the plugin, registered its node types, pushed them
+ * to the renderer, and the engine then ran a graph that depends on one of them.
+ * That is the whole integration layer in a single assertion, and it starts from
+ * the state a new user is actually in — the profile is fresh, so the plugin
+ * begins unconsented exactly as it does on a first launch.
+ */
+const before = await evaluate(ws, 700, `JSON.stringify({ types: document.querySelectorAll('.lib-item').length })`);
+
+// Re-open the plugins tab. The loop above ends on whichever tab is last in
+// SETTINGS_TABS, so the consent button is not on screen by then — assuming it
+// was is why this failed the first time it ran.
+await openSettingsTab('plugins');
+await evaluate(ws, 701, `[...document.querySelectorAll('.settings-panel button')].find(b => /grant consent/i.test(b.innerText))?.click(), '"ok"'`);
+
+let consented = null;
+for (let i = 0; i < 20 && (consented?.reviewTypes ?? 0) === 0; i++) {
+  await new Promise((r) => setTimeout(r, 700));
+  consented = await evaluate(ws, 720 + i, `JSON.stringify({
+    types: document.querySelectorAll('.lib-item').length,
+    reviewTypes: [...document.querySelectorAll('.lib-item-type')].filter(e => e.innerText.startsWith('aec.review.')).length,
+  })`);
+}
+if (!consented || consented.reviewTypes === 0) {
+  fail('granting consent did not load the bundled plugin — no aec.review.* types reached the palette');
+}
+
+// Close the dialog and run what is on the canvas.
+await evaluate(ws, 760, `document.querySelector('[role=dialog]')?.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})), '"ok"'`);
+await new Promise((r) => setTimeout(r, 600));
+await evaluate(ws, 761, `document.querySelector('.tb-run')?.click(), '"ok"'`);
+
+let run = null;
+for (let i = 0; i < 40 && !run?.done; i++) {
+  await new Promise((r) => setTimeout(r, 1000));
+  run = await evaluate(ws, 800 + i, `JSON.stringify({
+    done: /run finished/i.test(document.body.innerText),
+    final: [...document.querySelectorAll('.log-final')].slice(-1)[0]?.innerText ?? null,
+    notices: [...document.querySelectorAll('.notice')].map(e => e.innerText.slice(0, 160)),
+  })`);
+}
+if (!run?.done) fail(`the run never finished; notices: ${JSON.stringify(run?.notices ?? [])}`);
+if (!/succeeded/i.test(run.final ?? '')) fail(`the run did not succeed: ${run.final ?? '(no final line)'}`);
+
 mainWs.close();
 
 ws.close();
 child.kill('SIGTERM');
+await rm(USER_DATA, { recursive: true, force: true });
 
 if (!ui || ui.wordmark === null) {
   fail('the renderer mounted nothing — an empty body is what React error #185 looks like from outside');
@@ -223,5 +295,7 @@ if (ui.canvasNodes === 0) {
 console.log(
   `smoke: UI rendered — ${ui.panels.length} panels, ${ui.nodeTypes} node types in the palette\n` +
     `       opened "${ui.docName}" with ${ui.canvasNodes} nodes on the canvas\n` +
-    `       settings tabs rendered — ${panels.join(', ')} (characters)`,
+    `       settings tabs rendered — ${panels.join(', ')} (characters)\n` +
+    `       consent granted in-app — palette ${before.types} -> ${consented.types} types, ${consented.reviewTypes} from the plugin\n` +
+    `       ${(run.final ?? '').trim()}`,
 );

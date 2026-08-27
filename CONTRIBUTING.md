@@ -179,10 +179,27 @@ pnpm --filter @archspace/app smoke   # launches the app, asserts the UI rendered
 
 `check-bundle.mjs` fails the build if an `@archspace/*` specifier survives into
 `out/main` or `out/preload` — that is the first bug, caught statically.
-`smoke-ui.mjs` starts the built app with the DevTools Protocol open and asks
-the live DOM whether the shell is there; the node-type count it asserts is only
-non-zero if main spawned the engine child and the two agreed over a
-MessagePort, so one number covers that whole chain.
+
+`smoke-ui.mjs` runs the whole product against a throwaway profile and prints
+what it saw:
+
+```
+smoke: UI rendered — 4 panels, 18 node types in the palette
+       opened "Concept compliance check" with 6 nodes on the canvas
+       settings tabs rendered — mcp:1761, ai:3852, plugins:2466, autodesk:21240
+       consent granted in-app — palette 18 -> 25 types, 7 from the plugin
+       +4.55s run finished: succeeded — 6 complete, 0 failed, 0 skipped
+```
+
+Each line is a chain no unit test can reach. The palette count is non-zero only
+if main spawned the engine child and the two agreed over a MessagePort. The
+consent line means the settings UI wrote a grant, the plugin host read it,
+spawned a process, loaded the plugin and pushed its node types back. The last
+line means the engine then ran a graph that depends on one of those nodes.
+
+It uses a fresh `--user-data-dir` every time, which is both hygiene and
+correctness: the flow grants consent, and consent persists, so without
+isolation one run would silently change the state every later run observed.
 
 `smoke` is not in CI, deliberately: it needs a window server, and whether a
 GitHub runner reliably provides one has not been verified here. A flaky gate
