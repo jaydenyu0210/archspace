@@ -9,6 +9,7 @@
     "build": "electron-vite build && node scripts/check-bundle.mjs",
     "preview": "electron-vite preview",
     "dist": "electron-vite build && node scripts/check-bundle.mjs && electron-builder --mac --universal --publish never",
+    "dist:win": "electron-vite build && node scripts/check-bundle.mjs && electron-builder --win --publish never",
     "test": "vitest run",
     "smoke": "node scripts/smoke-ui.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.preload.json && tsc --noEmit -p tsconfig.web.json"

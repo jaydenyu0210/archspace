@@ -114,6 +114,27 @@ Sandbox forbids the things the product is made of — spawning stdio MCP servers
 one child process per plugin, opening arbitrary project directories. That
 trade-off is written down rather than papered over (ADR-0012 §4).
 
+### Windows
+
+There is a Windows build — an NSIS installer and ZIPs for x64 and arm64,
+produced by `pnpm dist:win` ([ADR-0014](docs/adr/0014-windows-packaging.md)) —
+with two honest caveats:
+
+- **It is unsigned.** There is no Authenticode certificate, so SmartScreen will
+  show *"Windows protected your PC"* on first run. Getting past it means
+  **More info → Run anyway**. Unlike the macOS case above, this is expected
+  rather than a sign something is wrong.
+- **Nobody has run it.** It is cross-packaged on macOS. The bundle is verifiably
+  assembled correctly — installer, asar, bundled examples, the first-party
+  plugin, the updater — but every *runtime* behaviour on Windows is untested:
+  the engine child process, plugin processes, stdio MCP transports, and
+  `safeStorage`, which is DPAPI on Windows rather than Keychain. Treat it as
+  "should work, unproven", and please report what actually happens.
+
+Linux is not packaged. Nothing in the codebase prevents it — no package below
+the Electron shell imports platform-specific code — but no target is
+configured and no build has been attempted.
+
 ---
 
 ## Build from source
@@ -178,25 +199,37 @@ my colleague sent me will not run on my machine."* A document names logical
 servers, profiles and plugins; only your machine's settings say what those
 resolve to.
 
-### Package a macOS app locally
+### Package the app locally
 
 ```sh
-pnpm build                                    # renderer + preload + main, and the plugin
-cd packages/app && pnpm exec electron-builder --mac --dir --publish never
-# → packages/app/dist/mac-arm64/Archspace.app
+pnpm dist        # macOS: universal .dmg + .zip  → packages/app/dist/
+pnpm dist:win    # Windows: NSIS installer + zips, x64 and arm64
 ```
 
-Two honest caveats. This build is **unsigned** — it runs on the machine that
-built it (a locally built app was never downloaded, so it carries no quarantine
-flag and Gatekeeper does not gate it), but do not hand it to anyone else.
-And it uses the **default Electron icon**: the repo deliberately ships no
-`icon.icns` yet rather than a placeholder. The universal signed `.dmg` is
-produced only by CI, which is the only sanctioned release path because that is
-where the Apple credentials live.
+Both run `scripts/check-bundle.mjs` first, which fails the build if a workspace
+package was left external — that once shipped an app that could not start at
+all (see [CONTRIBUTING](CONTRIBUTING.md) §3a).
 
-> The root `package.json` has a `dist` script that does not currently work —
-> it delegates to a `dist` script in `packages/app`, which does not exist. Use
-> the `electron-builder` invocation above.
+Both builds are **unsigned**. The macOS one runs on the machine that built it
+— a locally built app was never downloaded, so it carries no quarantine flag
+and Gatekeeper does not gate it — but do not hand it to anyone else. The signed,
+notarized `.dmg` is produced only by CI, which is the only sanctioned release
+path because that is where the Apple credentials live (ADR-0012 §3).
+
+The Windows build is cross-packaged from macOS and **has never been run on
+Windows**; see [Install → Windows](#windows) above for what that does and does
+not prove.
+
+After building macOS, this is worth running:
+
+```sh
+pnpm --filter @archspace/app smoke
+```
+
+It launches the built app against a throwaway profile and drives the whole
+out-of-box flow over the DevTools Protocol — opens the bundled example, opens
+all four settings tabs, grants consent to the bundled plugin, and runs the
+workflow that depends on it. It is not in CI because it needs a window server.
 
 ---
 
@@ -346,7 +379,8 @@ documents, which is a seam masquerading as a feature.
 | macOS packaging (`pnpm dist`) | **Real, and verified.** Produces a universal .dmg and .zip; the packaged app launches, renders, and opens the bundled example. Unsigned unless a Developer ID identity is present — see [docs/releasing.md](docs/releasing.md) §8 for exactly what was observed |
 | Signing, notarization, Homebrew cask | **Not done.** No Developer ID identity, no tag pushed, so `release.yml` has never run |
 | Auto-update | **Wired, unproven.** Reads the GitHub Releases feed on launch and ships in the bundle; no release has ever exercised it, and a private repo's feed is not anonymously readable |
-| Windows / Linux packaging | **Deferred by decision** (ADR-0001); no package imports platform code |
+| Windows packaging | **Builds, unverified** (ADR-0014). `pnpm dist:win` produces an unsigned NSIS installer and ZIPs for x64 + arm64. Cross-packaged on macOS — the bundle is assembled correctly, but **nobody has run it on Windows** |
+| Linux packaging | **Deferred by decision** (ADR-0001); no package imports platform code |
 
 The mock nodes' output shapes are the contract, not a sketch:
 [`packages/nodes-core/src/shapes.ts`](packages/nodes-core/src/shapes.ts) is

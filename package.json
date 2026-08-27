@@ -2,7 +2,7 @@
   "name": "archspace",
   "private": true,
   "version": "0.1.0",
-  "description": "Node-based workflows for AEC work — monorepo root",
+  "description": "Node-based workflows for AEC work \u2014 monorepo root",
   "license": "Apache-2.0",
   "packageManager": "pnpm@10.33.2",
   "engines": {
@@ -12,6 +12,7 @@
     "dev": "pnpm --filter @archspace/app dev",
     "build": "pnpm --filter @archspace/plugin-aec-review build && pnpm --filter @archspace/app build",
     "dist": "pnpm --filter @archspace/plugin-aec-review build && pnpm --filter @archspace/app dist",
+    "dist:win": "pnpm --filter @archspace/plugin-aec-review build && pnpm --filter @archspace/app dist:win",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
     "lint": "eslint .",

@@ -70,6 +70,35 @@ extraResources:
 
 asar: true
 
+# Windows. ADR-0001 chose "build cross-platform, ship macOS first", and this is
+# the second half arriving — the code was already platform-agnostic below the
+# Electron shell, so this is a packaging target rather than a port. See
+# ADR-0014 for why it was added and what is still unproven about it.
+#
+# BOTH architectures, explicitly. electron-builder defaults to the host's arch,
+# which on this repo's development machines means an arm64-only installer — a
+# build almost no Windows user can run. Naming x64 first is not cosmetic.
+win:
+  icon: build/icon.icns
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+
+# UNSIGNED, and this is the honest state rather than a TODO. Windows code
+# signing needs an Authenticode certificate from a CA; there is none here and
+# none in CI. Without it SmartScreen will warn on first run, exactly as
+# Gatekeeper does for the unsigned .dmg. electron-builder logs "signing with
+# signtool.exe" during the build regardless — that line means it looked, not
+# that it signed.
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  # Per-user by default: a machine-wide install needs elevation, and nothing
+  # here requires administrator rights.
+  perMachine: false
+
 mac:
   category: public.app-category.productivity
 

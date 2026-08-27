@@ -18,3 +18,4 @@ Format: MADR-lite (Context → Decision → Consequences → Alternatives). Stat
 | [0011](0011-assets-and-projects.md) | Project directory + content-addressed derived store | Accepted |
 | [0012](0012-macos-packaging.md) | electron-builder, Developer ID + notarization, no MAS | Accepted |
 | [0013](0013-testing-strategy.md) | Headless-first testing with property suites and testkit | Accepted |
+| [0014](0014-windows-packaging.md) | Windows build shipped unsigned; macOS stays primary | Accepted |
