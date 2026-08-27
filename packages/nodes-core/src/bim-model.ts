@@ -21,7 +21,7 @@ export const generateBimModelNode: NodeModule<GenerateBimModelParams> = {
     version: 1,
     label: 'Generate BIM Model',
     description:
-      'Mock BIM authoring backend: writes a small, valid IFC4 SPF model (project/site/building/storeys/spaces/walls/doors) from the floor plan.',
+      'Mock BIM authoring backend: writes a valid IFC4 SPF model — project, site, building, storeys, spaces, walls, doors — from the floor plan. Spatial structure only: the entities carry no geometry, so an IFC viewer shows the hierarchy with nothing to render.',
     category: 'Generate',
     keywords: ['bim', 'ifc', 'model', 'mock'],
     caching: 'never',
