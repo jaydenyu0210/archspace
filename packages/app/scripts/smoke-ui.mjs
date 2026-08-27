@@ -302,6 +302,77 @@ await evaluate(mainWs, 900, `(() => {
   return '"ok"';
 })()`, { commandLineAPI: true });
 
+/**
+ * The floor plan draws.
+ *
+ * The value behind it is 261,000 characters of JSON, and until there was a
+ * `plan` preview the panel showed its leading 6% — so the assertion that
+ * matters is not "something rendered" but "geometry rendered, in the quantity
+ * the run actually produced". A fallback to the JSON preview would leave the
+ * panel looking populated and this check failing, which is the point.
+ */
+await evaluate(ws, 890, `(() => {
+  const node = [...document.querySelectorAll('.react-flow__node')]
+    .find(n => /Generate Floor Plan/i.test(n.innerText));
+  if (!node) return '"no-node"';
+  node.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  node.click();
+  return '"ok"';
+})()`);
+await new Promise((r) => setTimeout(r, 600));
+
+const plan = await evaluate(ws, 891, `JSON.stringify({
+  svgs: document.querySelectorAll('.plan-svg').length,
+  rooms: document.querySelectorAll('.plan-room').length,
+  walls: document.querySelectorAll('.plan-wall').length,
+  labels: document.querySelectorAll('.plan-label').length,
+  caption: document.querySelector('.plan-caption')?.innerText ?? null,
+  viewBox: document.querySelector('.plan-svg')?.getAttribute('viewBox') ?? null,
+  json: document.querySelectorAll('.preview-pre').length,
+})`);
+
+if (plan?.svgs !== 1) fail(`the floor plan did not draw — ${plan?.svgs ?? 0} plan views, ${plan?.json ?? 0} raw JSON blocks instead`);
+if (plan.rooms < 10) fail(`only ${plan.rooms} rooms drawn; the example's ground floor has 27`);
+if (plan.walls < 10) fail(`only ${plan.walls} walls drawn`);
+// Labels are the part that needed rotating to work at all: a corridor plan's
+// rooms are deeper than they are wide, and requiring a horizontal fit labelled
+// one room in twenty-seven.
+if (plan.labels < 5) fail(`only ${plan.labels} room labels drawn — the fit test is rejecting rooms that should fit`);
+// A viewBox of zero extent renders nothing while every element still exists.
+const extent = (plan.viewBox ?? '').split(/\s+/).map(Number);
+if (extent.length !== 4 || !(extent[2] > 0) || !(extent[3] > 0)) fail(`bad plan viewBox: ${plan.viewBox}`);
+
+// The panel that holds it is resizable, because 216px of fixed height leaves
+// about 130px for a drawing.
+const beforeDrag = await evaluate(ws, 892, `JSON.stringify(document.querySelector('.exec-preview').clientHeight)`);
+await evaluate(ws, 893, `(() => {
+  const d = document.querySelector('.exec-divider');
+  if (!d) return '"no-divider"';
+  const r = d.getBoundingClientRect();
+  const opts = { bubbles: true, pointerId: 1, clientY: r.top + 2 };
+  d.setPointerCapture = () => {}; d.releasePointerCapture = () => {};
+  d.dispatchEvent(new PointerEvent('pointerdown', opts));
+  d.dispatchEvent(new PointerEvent('pointermove', { ...opts, clientY: r.top - 200 }));
+  d.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientY: r.top - 200 }));
+  return '"ok"';
+})()`);
+await new Promise((r) => setTimeout(r, 400));
+const afterDrag = await evaluate(ws, 894, `JSON.stringify({
+  preview: document.querySelector('.exec-preview').clientHeight,
+  stored: localStorage.getItem('archspace.execPanelHeight'),
+})`);
+if (afterDrag.preview <= beforeDrag) fail(`dragging the divider up did not grow the panel (${beforeDrag} -> ${afterDrag.preview})`);
+// The persisted height must come from where the drag ended, not where it
+// began: reading it from React state in the pointerup handler saved the
+// starting value, so the panel resized and then reverted on next launch. The
+// stored number is the whole panel and `preview` is its body, so they differ by
+// the header — hence a tolerance rather than equality. What is being asserted
+// is that it moved with the drag at all.
+const startedFrom = 216;
+if (Math.abs(Number(afterDrag.stored) - afterDrag.preview) > 80 || Number(afterDrag.stored) === startedFrom) {
+  fail(`the divider persisted ${afterDrag.stored} for a panel of ${afterDrag.preview} — the saved height is stale`);
+}
+
 // Outputs are shown for the inspected node, so the DXF exporter has to be
 // selected first — the same two clicks a user makes.
 await evaluate(ws, 901, `(() => {
@@ -377,5 +448,6 @@ console.log(
     `       settings tabs rendered — ${panels.join(', ')} (characters)\n` +
     `       consent granted in-app — palette ${before.types} -> ${consented.types} types, ${consented.reviewTypes} from the plugin\n` +
     `       ${(run.final ?? '').trim()}\n` +
+    `       floor plan drew — ${plan.rooms} rooms, ${plan.walls} walls, ${plan.labels} labels; panel resized ${beforeDrag} -> ${afterDrag.preview}px\n` +
     `       saved through the UI — clicked Save on the DXF exporter, ${savedBytes.byteLength} bytes of valid R12 landed on disk`,
 );

@@ -130,6 +130,22 @@ export interface PortDecl {
   description?: string;
   required?: boolean;        // inputs only; default true
   variadic?: boolean;        // inputs only; N edges of T collected into list<T>
+  /**
+   * How the UI should render this port's value, when the port type alone is
+   * not enough to say.
+   *
+   * Only `'plan'` exists so far, for a `json` output carrying a
+   * `FloorPlanResult`. Without it a floor plan previews as pretty-printed JSON,
+   * and a six-storey plan is 261,000 characters — so what the headline node of
+   * an AEC application shows is the first 6% of a blob, cut mid-structure.
+   *
+   * A declared hint rather than shape-sniffing in the engine, because the node
+   * is what knows, because a plugin needs the same ability a built-in has, and
+   * because a sniffer that stops matching fails silently and looks like a
+   * rendering bug. An unknown hint falls back to the port type's own rendering,
+   * so a newer node stays viewable in an older build.
+   */
+  preview?: 'plan';
 }
 
 /** Loose JSON Schema (2020-12 subset) object type for manifest params. */

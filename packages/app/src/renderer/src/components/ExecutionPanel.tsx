@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import type { RunEvent, OutputPreview } from '@archspace/engine';
 import type { AssetRef } from '@archspace/node-sdk';
+import { PlanView } from './PlanView';
 
 function eventLine(e: RunEvent, startedAt: number | null, nodeLabel: (id: string) => string): string | null {
   const t = startedAt ? `+${((e.at - startedAt) / 1000).toFixed(2)}s` : '';
@@ -144,6 +145,9 @@ function PreviewBlock({ preview }: { preview: OutputPreview }) {
             <div className="preview-note">{p.rows.length} of {p.totalRows} rows</div>
           )}
         </div>
+      )}
+      {p.kind === 'plan' && (
+        <PlanView level={p.level} levelCount={p.levelCount} site={p.site} />
       )}
       {p.kind === 'asset' && <AssetPreview asset={p.ref} />}
       {p.kind === 'empty' && <div className="preview-note">no value</div>}

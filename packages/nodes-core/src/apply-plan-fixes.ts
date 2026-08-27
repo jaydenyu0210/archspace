@@ -309,7 +309,7 @@ export const applyPlanFixesNode: NodeModule<ApplyPlanFixesParams> = {
       { id: 'review', type: 'json', label: 'Review', required: true },
     ],
     outputs: [
-      { id: 'floor_plan', type: 'json', label: 'Revised floor plan' },
+      { id: 'floor_plan', type: 'json', label: 'Revised floor plan', preview: 'plan' },
       { id: 'change_log', type: 'json', label: 'Change log' },
       { id: 'changes', type: 'table', label: 'Changes' },
     ],

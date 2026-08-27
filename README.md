@@ -53,7 +53,9 @@ and notarisation or macOS refuses to open it. Until that is set up,
    for, click **Grant consent & enable**. Plugins run in their own process and
    only get what they declare, so you are asked before anything loads.
 4. **Press ▶ Run again.** About five seconds. Watch each node report progress in
-   the log at the bottom, then click a node to see what it produced.
+   the log at the bottom, then click a node to see what it produced. Click
+   *Generate Floor Plan* and the plan is **drawn** — rooms, walls at their real
+   thickness, doors and exits. Drag the bar above the panel to make it bigger.
 5. **Save something.** Click the *Export Floor Plan to DXF* node and press
    **Save…** in the panel at the bottom right. That is a real CAD drawing —
    open it in AutoCAD, LibreCAD, QCAD, or any online DXF viewer.
@@ -173,7 +175,7 @@ Needs [Node](https://nodejs.org) (version in `.nvmrc`) and
 ```sh
 pnpm install
 pnpm dev      # run the app
-pnpm test     # 1071 tests across 12 packages
+pnpm test     # 1100 tests across 12 packages
 ```
 
 Run a workflow with no UI — a real feature, not a test harness:

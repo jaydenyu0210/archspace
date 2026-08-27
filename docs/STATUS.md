@@ -52,6 +52,7 @@ documents, which is a seam masquerading as a feature.
 | Execution engine (lanes, memoization, cancel, retry, partial failure, events) | **Real**, deterministic-mode tested |
 | CLI (`run`, `nodes`, `plugins`, `mcp`, `ai`, `doctor`) | **Real** |
 | Electron shell: canvas, palette, JSON-Schema inspector, live run log, open/save | **Real** |
+| Floor plan preview — the plan drawn as 2D geometry in the run panel | **Real.** Rooms, walls at true thickness, doors, exits and rotated room labels, on a resizable panel. Same visual vocabulary as the DXF export on purpose, so the two disagreeing is visible. Replaces what the headline node used to show: the leading 6% of a 261,000-character JSON blob. Only the first storey is previewed, and the caption says so |
 | Getting produced files out — **Save…** on any asset in the run panel, `archspace run --out <dir>` headless | **Real**, and covered end to end: the smoke test clicks Save in the packaged app and checks the bytes that land on disk. Bulk data never enters the renderer (§7.6) — it asks main to save an `AssetRef`, and main reads the bytes from the engine over its own channel |
 | Plugin host: manifest, consent, one process per plugin, crash containment | **Real** |
 | MCP host: official SDK, stdio + Streamable HTTP, OAuth 2.1, tools → nodes | **Real** code; not yet exercised against a live Revit server |

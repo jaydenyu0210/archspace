@@ -72,7 +72,7 @@ export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
       { id: 'brief', type: 'json', label: 'Brief', required: true },
       { id: 'program', type: 'table', label: 'Program', required: true },
     ],
-    outputs: [{ id: 'floor_plan', type: 'json', label: 'Floor plan' }],
+    outputs: [{ id: 'floor_plan', type: 'json', label: 'Floor plan', preview: 'plan' }],
   },
 
   async execute(ctx, inputs, params) {

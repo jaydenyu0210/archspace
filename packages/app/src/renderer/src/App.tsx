@@ -29,6 +29,7 @@ import { NodeLibrary } from './components/NodeLibrary';
 import { Canvas } from './components/Canvas';
 import { Inspector } from './components/Inspector';
 import { ExecutionPanel } from './components/ExecutionPanel';
+import { ExecPanelDivider } from './components/ExecPanelDivider';
 import { Notices } from './components/Notices';
 import { Settings } from './components/Settings';
 import { useStore } from './store';
@@ -161,6 +162,7 @@ export default function App() {
         <Canvas />
         <Inspector />
       </div>
+      <ExecPanelDivider />
       <ExecutionPanel />
       <Notices />
       {/* Mounted only while open, so focus capture/restore and the panels'

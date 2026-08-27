@@ -18,7 +18,7 @@ export type {
 } from './run.js';
 export { startRun } from './run.js';
 
-export type { ValuePreview, OutputPreview } from './preview.js';
+export type { ValuePreview, OutputPreview, PlanLevelPreview } from './preview.js';
 
 export type { SchedulerHooks, VirtualScheduler } from './scheduler.js';
 export { createVirtualScheduler } from './scheduler.js';
