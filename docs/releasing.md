@@ -354,17 +354,25 @@ adding a workflow cannot silently skip it.
 **Auto-update is not wired.** Stating this plainly because the configuration looks
 like it is:
 
-- `electron-updater` **is** a declared dependency of `@archspace/app`.
-- It is **never imported**. There is no `autoUpdater` reference anywhere in any
-  package's `src/` — the string appears only in `package.json` and in comments.
-- The `publish:` block in `electron-builder.yml` **is** present and real. It makes
-  electron-builder emit `latest-mac.yml` and bake an `app-update.yml` into the
-  bundle, which is everything the *feed* side needs.
+- `electron-updater` **is** a declared dependency of `@archspace/app`, and it
+  **is** wired: `packages/app/src/main/updates.ts` imports it and calls
+  `checkForUpdatesAndNotify()` after the window opens. Packaged builds only —
+  a dev run has no version to compare — and a failed check is one log line
+  rather than a dialog. Verified present in a real bundle: 38 entries inside
+  `app.asar` on both macOS and Windows.
+- The `publish:` block in `electron-builder.yml` **is** present and real, with
+  this repository's actual coordinates. electron-builder emits `latest-mac.yml`
+  (and `latest.yml` for Windows) and bakes `app-update.yml` into the bundle.
 
-So a release produces a well-formed update feed that nothing consumes. A shipped
-Archspace will not notice that a newer version exists, and the release gate's
-"update n−1 → n verified" step cannot be performed. Do not claim otherwise in
-release notes.
+**The gap is not the wiring — it is that the repository is PRIVATE.**
+electron-updater fetches `https://github.com/<owner>/<repo>/releases.atom`
+anonymously; a shipped app carries no token, and that URL 404s on a private
+repo. So every installed copy would check, fail, log a line, and never update.
+
+Decide before the first signed tag: make the repository public, point `publish`
+at a public mirror, or ship knowing auto-update is dead and say so. Until one of
+those happens the release gate's "update n−1 → n verified" step cannot be
+performed, and release notes must not claim auto-update works.
 
 Auto-update is scoped to **M8** in [ARCHITECTURE.md §16](ARCHITECTURE.md),
 alongside the Homebrew cask (also not present in this repository). Wiring it is

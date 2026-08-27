@@ -35,11 +35,13 @@
 #                      is absent the job falls back to GITHUB_TOKEN, which the
 #                      `permissions: contents: write` below makes sufficient.
 #
-# BEFORE THE FIRST REAL RELEASE: the electron-updater feed coordinates in
-# packages/app/electron-builder.yml are still REPLACE-ME placeholders. The
-# "Decide how this run packages" step below hard-fails a signed tag build while
-# that is true, because a published release whose app-update.yml points at a
-# non-existent repo is worse than no release at all.
+# BEFORE THE FIRST REAL RELEASE: the feed coordinates in
+# packages/app/electron-builder.yml are now this repository's real ones, so the
+# REPLACE-ME guard below no longer fires — it is kept as a regression check.
+# The remaining feed problem is not a placeholder but VISIBILITY: electron-
+# updater reads releases.atom anonymously, which 404s on a private repository,
+# so auto-update is dead for every installed copy until this repo is public or
+# `publish` points at one that is. See docs/releasing.md §7.
 name: Release
 
 on:
@@ -63,6 +65,115 @@ permissions:
   contents: write
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Windows. Deliberately a SEPARATE job rather than `--win` appended to the
+  # macOS one, which is the tempting one-liner and is wrong twice over: the
+  # macOS upload globs `*.zip`, so Windows zips would be swept into an artifact
+  # named `archspace-macos-*`, and it globs no `*.exe` or `latest.yml`, so the
+  # installer and the Windows update feed would be built and then silently
+  # dropped. Two platforms, two artifacts, two feeds.
+  #
+  # It runs on windows-latest rather than cross-packaging from macOS, because a
+  # native build is the only kind that can ever be verified — and this is the
+  # first place in the project where anything runs on Windows at all.
+  #
+  # It NEVER publishes. Windows builds are unsigned (ADR-0014 §2), and an
+  # unsigned artifact does not belong in a release that also carries a
+  # notarized macOS build; the two would be indistinguishable on the page.
+  # It also carries no `needs:` on purpose: a Windows failure must not stop a
+  # macOS release, because macOS is the shipped platform (ADR-0001).
+  windows:
+    name: Windows (nsis + zip, x64 + arm64) — unsigned, never published
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Same ordering constraint as the macOS job: the plugin's dist/ is copied
+      # into the app's extraResources, so it has to exist first.
+      - name: Build the first-party plugin
+        run: pnpm --filter @archspace/plugin-aec-review build
+
+      # This also runs scripts/check-bundle.mjs, which fails the build if a
+      # workspace package was left external — the bug that once produced an app
+      # that could not start at all.
+      - name: Build renderer, preload and main
+        run: pnpm --filter @archspace/app build
+
+      - name: Package (unsigned, no publish)
+        working-directory: packages/app
+        run: pnpm exec electron-builder --win --publish never
+
+      # The Windows equivalent of the macOS layout check. Same failure mode,
+      # different paths: main resolves the examples and the plugin from
+      # `process.resourcesPath`, which on Windows is `resources/` beside the
+      # .exe rather than `Contents/Resources`.
+      - name: Verify the packaged layout matches what main resolves at runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          res="packages/app/dist/win-unpacked/resources"
+          [ -d "${res}" ] || { echo "::error title=No unpacked build::${res} does not exist."; exit 1; }
+          fail=0
+
+          for src in packages/app/resources/*.archspace.yaml; do
+            name="$(basename "${src}")"
+            if [ ! -f "${res}/resources/${name}" ]; then
+              echo "::error title=Bundled example missing::${name} is not at resources/resources/."
+              fail=1
+            fi
+          done
+
+          if [ ! -f "${res}/plugins/aec-review/dist/index.js" ]; then
+            echo "::error title=First-party plugin missing::resources/plugins/aec-review/dist/index.js is absent. The plugin host forks it from disk (ADR-0008), so it cannot live inside the asar."
+            fail=1
+          fi
+
+          if [ ! -f "packages/app/dist/win-unpacked/Archspace.exe" ]; then
+            echo "::error title=No executable::Archspace.exe was not produced."
+            fail=1
+          fi
+
+          [ "${fail}" -eq 0 ] || exit 1
+          echo "Windows bundle layout OK."
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: archspace-windows-UNSIGNED
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            packages/app/dist/*.exe
+            packages/app/dist/*.zip
+            packages/app/dist/latest.yml
+            packages/app/dist/*.blockmap
+
+      - name: Job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Windows build — UNSIGNED, not published"
+            echo
+            echo "There is no Authenticode certificate, so SmartScreen will show"
+            echo "\"Windows protected your PC\" on first run (More info -> Run anyway)."
+            echo
+            echo "These artifacts are **not** attached to any GitHub Release; they are"
+            echo "workflow artifacts with a 14-day retention. See ADR-0014."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   macos:
     name: macOS universal (dmg + zip)
     runs-on: macos-latest
@@ -118,8 +229,18 @@ jobs:
       # and ADR-0008 makes an unconsented plugin unloadable. Without the flag
       # this step exits 1 on "plugin \"aec-review\" is needs-consent". ci.yml
       # passes it for the same reason.
+      # ALL of them, derived from the directory exactly as ci.yml does. This ran
+      # one example until 2026-08-26, while ci.yml had been fixed to loop — so
+      # the file above could claim "a tag does not get a shortcut" while the tag
+      # path was strictly weaker than the PR path. `branching-review` shipped
+      # broken once for precisely this reason.
       - name: Headless CLI integration run
-        run: pnpm cli run packages/app/resources/concept-compliance.archspace.yaml --trust-plugin aec-review
+        run: |
+          for workflow in packages/app/resources/*.archspace.yaml; do
+            echo "::group::$workflow"
+            pnpm cli run "$workflow" --trust-plugin aec-review
+            echo "::endgroup::"
+          done
 
       # One place decides what this run is allowed to do, so the packaging steps
       # below stay dumb. Secrets are empty on forks and in repos that have not
@@ -159,10 +280,30 @@ jobs:
             *REPLACE-ME*) feed=placeholder ;;
           esac
 
-          # Publishing requires all three: a tag, signing, and a real feed.
+          # Publishing requires all three: a tag PUSH, signing, and a real feed.
+          #
+          # Keyed off GITHUB_EVENT_NAME, not GITHUB_REF_TYPE. The header above
+          # promises a manual run "never publishes", and the ref-type test did
+          # not deliver that: GitHub's dispatch ref selector accepts tags, so
+          # `gh workflow run --ref v0.1.0` set GITHUB_REF_TYPE=tag and would
+          # have published from a dry run the moment signing secrets existed.
+          # The event is the invariant; the ref type is kept as a second AND.
           publish=never
-          if [ "${signed}" = true ] && [ "${feed}" = configured ] && [ "${GITHUB_REF_TYPE-}" = tag ]; then
+          if [ "${signed}" = true ] \
+            && [ "${feed}" = configured ] \
+            && [ "${GITHUB_EVENT_NAME-}" = push ] \
+            && [ "${GITHUB_REF_TYPE-}" = tag ]; then
             publish=always
+          fi
+
+          # A tag that cannot publish must be RED. Degrading to an unsigned
+          # build is right for a dry run and for forks; on a tag it is a false
+          # success — a green check, an uploaded artifact, and no release —
+          # which is the most misleading thing this workflow could do, and it
+          # would burn the tag while looking fine.
+          if [ "${GITHUB_EVENT_NAME-}" = push ] && [ "${publish}" != always ]; then
+            echo "::error title=Tag cannot publish::signed=${signed} feed=${feed}. A tag build that cannot produce a release fails rather than passing quietly. Missing secrets:${missing:- none}. Use workflow_dispatch for an unsigned rehearsal."
+            exit 1
           fi
 
           if [ "${feed}" = placeholder ] && [ "${signed}" = true ] && [ "${GITHUB_REF_TYPE-}" = tag ]; then
@@ -221,7 +362,17 @@ jobs:
           # GH_TOKEN is optional; `permissions: contents: write` above is what
           # makes the fallback able to create the draft release.
           GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
-        run: pnpm exec electron-builder --mac --universal --publish ${{ steps.plan.outputs.publish }}
+        # `--config.mac.forceCodeSigning=true` closes the dangerous gap: the plan
+        # step only checks that CSC_LINK is NON-EMPTY, so an expired, revoked or
+        # wrong-type certificate reaches here as signed=true. Without this flag
+        # electron-builder logs "skipped macOS application code signing" and
+        # carries on — publishing an UNSIGNED app down the path labelled signed.
+        # It is set here rather than in electron-builder.yml so the documented
+        # local `pnpm dist` keeps working on machines with no identity.
+        run: >
+          pnpm exec electron-builder --mac --universal
+          --config.mac.forceCodeSigning=true
+          --publish ${{ steps.plan.outputs.publish }}
 
       # No secrets: build anyway, so the packaging path itself stays tested on
       # every fork PR that touches it — but sign nothing and publish nothing.
