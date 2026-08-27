@@ -24,6 +24,7 @@
 import type { EngineGraph } from '@archspace/engine';
 import type { ProfileProbeResult } from '@archspace/ai-gateway';
 import { ENGINE_PORT_MESSAGE } from '../../shared/protocol';
+import { explainRejection } from './rejection';
 import type { EngineRequest, EngineResponse } from '../../shared/protocol';
 import { useStore } from './store';
 
@@ -109,7 +110,11 @@ function handleResponse(msg: EngineResponse): void {
       break;
     case 'run-rejected':
       store.runRejected(msg.runId, msg.issues);
-      store.notify('error', `Run refused: ${msg.issues[0]?.message ?? 'validation failed'}`);
+      // Not just the engine's verdict: when the missing node type belongs to a
+      // plugin that is installed but not enabled — which is the state a fresh
+      // install is in, with the bundled example open — say so and name the
+      // screen that fixes it. See rejection.ts.
+      store.notify('error', `Run refused: ${explainRejection(msg.issues, store.nodes, store.plugins)}`);
       break;
     case 'validated':
       break;

@@ -63,7 +63,12 @@ try {
 const child = spawn(
   join(APP, 'node_modules/.bin/electron'),
   [
-    join(APP, 'out/main/index.js'),
+    // `.` rather than the entry path, because Electron derives app.getAppPath()
+    // from it and main resolves the bundled example workflows relative to that.
+    // Pointed at out/main/index.js directly it looks for them in out/main and
+    // opens an empty canvas — which still "renders", so this script would pass
+    // while testing something no user will ever run.
+    '.',
     `--remote-debugging-port=${PORT}`,
     // The settings dialog opens from the native menu, which only main can
     // trigger. Inspecting main is how this drives it without a test-only hook
@@ -117,6 +122,8 @@ const EXPR = `JSON.stringify({
   wordmark: document.querySelector('.wordmark')?.innerText ?? null,
   panels: [...document.querySelectorAll('.toolbar,.library,.inspector,.react-flow')].map(e => e.className.split(' ')[0]),
   nodeTypes: document.querySelectorAll('.lib-item').length,
+  docName: document.querySelector('.doc-name')?.innerText ?? null,
+  canvasNodes: document.querySelectorAll('.node').length,
 })`;
 
 let ui = null;
@@ -206,8 +213,15 @@ for (const panel of ['toolbar', 'library', 'inspector', 'react-flow']) {
 if (ui.nodeTypes === 0) {
   fail('the node palette is empty — main did not spawn the engine child, or it never delivered its manifests');
 }
+// The bundled example is what a first launch actually shows, and reaching it
+// exercises the resources path, the copy into userData, the parser and the
+// canvas. An app that renders an empty document looks healthy and is not.
+if (ui.canvasNodes === 0) {
+  fail(`no nodes on the canvas — the bundled example did not open (document: ${ui.docName ?? 'none'})`);
+}
 
 console.log(
   `smoke: UI rendered — ${ui.panels.length} panels, ${ui.nodeTypes} node types in the palette\n` +
+    `       opened "${ui.docName}" with ${ui.canvasNodes} nodes on the canvas\n` +
     `       settings tabs rendered — ${panels.join(', ')} (characters)`,
 );
