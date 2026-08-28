@@ -28,6 +28,47 @@ import type { FloorPlanLevel, FloorPlanResult, PlanRoom } from './shapes.js';
 import { encodeCp1252, writeDxf, type DxfEntity, type DxfLayer, type Point } from './dxf.js';
 import { requireInput, round2 } from './util.js';
 
+/**
+ * How wide one storey draws, in x — the pitch between storeys when every one is
+ * exported.
+ *
+ * Every level shares a footprint, so the widest is the pitch for all of them:
+ * a per-level pitch would leave storeys at irregular spacing, which reads as
+ * meaning rather than as packing. Walls contribute half their thickness on each
+ * side because that is how they are drawn, and a door contributes half its
+ * width for the same reason.
+ *
+ * Falls back to the site's long side when a plan carries no geometry at all —
+ * an empty storey still needs a slot, or two empty ones would land on the same
+ * origin and the next non-empty one would collide with them.
+ */
+function drawnSpanX(plan: FloorPlanResult): number {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  const see = (x: number): void => {
+    if (!Number.isFinite(x)) return;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+  };
+  for (const level of plan.levels) {
+    for (const room of level.rooms) for (const [x] of room.polygon) see(x);
+    for (const wall of level.walls) {
+      const half = Math.max(wall.thicknessMm, 0) / 2;
+      see(wall.start[0] - half);
+      see(wall.start[0] + half);
+      see(wall.end[0] - half);
+      see(wall.end[0] + half);
+    }
+    for (const door of level.doors) {
+      see(door.position[0] - door.widthMm / 2);
+      see(door.position[0] + door.widthMm / 2);
+    }
+    for (const exit of level.exits) see(exit.position[0]);
+  }
+  if (!Number.isFinite(minX)) return Math.max(plan.site.widthMm, plan.site.depthMm, 1);
+  return Math.max(maxX - minX, 1);
+}
+
 export interface ExportDxfParams {
   file_name: string;
   level: string;
@@ -234,12 +275,27 @@ export const exportDxfNode: NodeModule<ExportDxfParams> = {
     // Side by side when drawing every storey, because a plan sheet is how
     // storeys are read together — stacking them at the same origin would
     // overlay six floors on top of one another. The gutter is a tenth of the
-    // site, floored at two metres: wide enough to read as a separation at any
+    // span, floored at two metres: wide enough to read as a separation at any
     // zoom, narrow enough that six storeys still fit on one screen. A full
     // site width as the gutter, which the first cut used, doubles the drawing
     // and pushes the storeys apart faster than the eye can group them.
-    const gutter = Math.max(plan.site.widthMm / 10, 2000);
-    const originFor = (index: number): number => (all ? index * (plan.site.widthMm + gutter) : 0);
+    //
+    // The pitch is the drawn span, measured from the geometry — NOT
+    // `site.widthMm`. `aec.generate_floor_plan` runs its corridor along the
+    // LONG axis (floor-plan.ts:97), so a storey occupies `max(width, depth)`
+    // in x, and a site deeper than it is wide made every storey wider than the
+    // distance to the next one: on a 20 x 60 m site the three storeys of a
+    // 60 m plan advanced by 20 m each and drew on top of each other. It went
+    // unseen because every shipped example is wider than it is deep, where the
+    // wrong number happens to be the larger one and only leaves a gap.
+    //
+    // Measured rather than recomputed as `max(width, depth)` for the reason
+    // `planBounds` gives in the renderer: a wall on the boundary is drawn at
+    // its true thickness and overhangs the site by half of it, so the site
+    // dimensions are the floor of the drawn extent and not the extent.
+    const span = drawnSpanX(plan);
+    const gutter = Math.max(span / 10, 2000);
+    const originFor = (index: number): number => (all ? index * (span + gutter) : 0);
 
     for (const [index, level] of levels.entries()) {
       const dx = originFor(index);

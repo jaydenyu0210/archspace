@@ -124,6 +124,41 @@ function headerVar(pairs: Pair[], name: string): Pair[] {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
+/**
+ * The x-extent actually drawn for each storey, keyed by level.
+ *
+ * Two R12 traps make a naive scan report nonsense, and both were hit while
+ * writing this: a POLYLINE's own group 10 is a dummy `(0, 0)` with the real
+ * points in the VERTEX entities that follow it, and a justified TEXT parks a
+ * placeholder in 10 with its true insertion point in 11. Reading every 10 in
+ * the file therefore reports a minimum of zero for every storey and hides the
+ * exact overlap this exists to catch.
+ */
+function storeyXSpans(pairs: Pair[]): Map<number, { min: number; max: number }> {
+  const spans = new Map<number, { min: number; max: number }>();
+  let level: number | null = null;
+  let kind = '';
+  for (const [c, v] of section(pairs, 'ENTITIES')) {
+    if (c === 0) {
+      kind = v;
+      continue;
+    }
+    if (c === 8) {
+      const m = /-L(\d+)$/.exec(v);
+      level = m ? Number(m[1]) : null;
+      continue;
+    }
+    if (level === null) continue;
+    const positional = kind === 'TEXT' ? c === 11 : (kind === 'VERTEX' || kind === 'LINE' || kind === 'CIRCLE') && c === 10;
+    if (!positional) continue;
+    const x = Number(v);
+    if (!Number.isFinite(x)) continue;
+    const span = spans.get(level) ?? { min: Infinity, max: -Infinity };
+    spans.set(level, { min: Math.min(span.min, x), max: Math.max(span.max, x) });
+  }
+  return spans;
+}
+
 // ------------------------------------------------------------- fixtures ----
 
 interface Exported {
@@ -135,9 +170,12 @@ interface Exported {
 }
 
 /** brief → program → plan → dxf, returning both the plan and the parsed file. */
-async function exportPlan(params: Record<string, unknown> = {}): Promise<Exported> {
+async function exportPlan(
+  params: Record<string, unknown> = {},
+  briefParams: Record<string, unknown> = {},
+): Promise<Exported> {
   const assets = createMemoryAssetStore();
-  const brief = await runNode(projectBriefNode, { assets });
+  const brief = await runNode(projectBriefNode, { assets, ...(Object.keys(briefParams).length > 0 ? { params: briefParams } : {}) });
   const program = await runNode(spaceProgramNode, {
     inputs: { brief: brief.outputs.brief },
     assets,
@@ -454,6 +492,37 @@ describe('storey selection', () => {
 
     const layers = new Set(entities(section(one.pairs, 'ENTITIES')).map((e) => code(e, 8)));
     for (const layer of layers) expect(layer).toMatch(/-L1$/);
+  });
+
+  it('never overlaps two storeys, on a site deeper than it is wide', async () => {
+    // The regression. `aec.generate_floor_plan` runs its corridor along the
+    // LONG axis (floor-plan.ts:97), so a storey occupies `max(width, depth)`
+    // in x — and the pitch between storeys was `site.widthMm`. On a site
+    // deeper than it is wide, every storey was therefore wider than the
+    // distance to the next one and they drew on top of each other: three
+    // storeys of a 20 x 60 m site overlapped by 38.2 m of a 60.2 m span. It
+    // survived because every shipped example is wider than it is deep, where
+    // the wrong number happens to be the larger one and merely leaves a gap.
+    //
+    // Asserted on the storeys' own geometry rather than on `$EXTMAX`, because
+    // a total extent is exactly what an overlap does not change.
+    const deep = await exportPlan({ level: 'all' }, { site_width_m: 20, site_depth_m: 60, floors: 3, target_gross_area_m2: 2400 });
+    expect(deep.plan.site.depthMm).toBeGreaterThan(deep.plan.site.widthMm);
+    expect(deep.plan.levels.length).toBeGreaterThan(1);
+
+    const spans = storeyXSpans(deep.pairs);
+    expect(spans.size).toBe(deep.plan.levels.length);
+
+    const ordered = [...spans.entries()].sort((a, b) => a[0] - b[0]);
+    let previousMax = -Infinity;
+    for (const [level, { min, max }] of ordered) {
+      expect(min, `storey ${level} starts before storey ${level - 1} ends`).toBeGreaterThanOrEqual(previousMax);
+      previousMax = max;
+    }
+
+    // And evenly: an irregular gutter reads as meaning rather than as packing.
+    const widths = ordered.map(([, s]) => s.max - s.min);
+    for (const w of widths) expect(w).toBeCloseTo(widths[0], 6);
   });
 
   it('refuses a storey the plan does not have, and says which it does', async () => {
