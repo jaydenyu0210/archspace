@@ -41,6 +41,13 @@ export type AppNodeData = {
    * hash — pinning it is what makes drift detectable at all.
    */
   schemaHash?: string;
+  /**
+   * Params this node exposes as input ports (§5.1, ADR-0017). Carried through
+   * load and save like `schemaHash`, and absent — never `[]` — when the node
+   * promotes nothing, so a document that uses no promotion round-trips
+   * byte-identically.
+   */
+  promoted?: string[];
   [key: string]: unknown;
 };
 export type AppNode = Node<AppNodeData>;
@@ -474,6 +481,11 @@ export const useStore = create<StoreState>((set, get) => ({
         // the baseline drift is measured from, so this machine must not re-pin
         // it to whatever its own servers happen to serve today.
         ...(n.schemaHash !== undefined ? { schemaHash: n.schemaHash } : {}),
+        // Also verbatim, and also for a colleague's sake: a promotion naming a
+        // param this machine's registry does not have must survive the round
+        // trip, or opening a teammate's workflow without their plugin would
+        // silently delete their wiring.
+        ...(n.promoted !== undefined ? { promoted: [...n.promoted] } : {}),
       },
     }));
     const edges: AppEdge[] = doc.edges.map((e) => ({
@@ -522,6 +534,7 @@ export const useStore = create<StoreState>((set, get) => ({
         type: n.data.typeId,
         version: n.data.version,
         ...(n.data.schemaHash !== undefined ? { schemaHash: n.data.schemaHash } : {}),
+        ...(n.data.promoted !== undefined && n.data.promoted.length > 0 ? { promoted: [...n.data.promoted] } : {}),
         config: structuredClone(n.data.config),
       })),
       edges: s.edges.map((e) => ({
@@ -539,10 +552,16 @@ export const useStore = create<StoreState>((set, get) => ({
   buildGraph: () => {
     const s = get();
     return {
+      // `toEngineGraph`, not a fourth hand-written copy. Two of these used to
+      // live in the CLI and one here, which is how `archspace doctor` and
+      // `archspace run` come to disagree about the same file: `EngineNodeSpec`
+      // permits extra properties, so a copy that forgot `promoted` type-checks
+      // and validates a graph the engine then executes differently.
       nodes: s.nodes.map((n) => ({
         id: n.id,
         type: n.data.typeId,
         version: n.data.version,
+        ...(n.data.promoted !== undefined ? { promoted: n.data.promoted } : {}),
         config: structuredClone(n.data.config),
       })),
       edges: s.edges.map((e) => ({

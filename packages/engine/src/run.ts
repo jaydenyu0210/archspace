@@ -21,6 +21,7 @@ import {
   type Value,
 } from '@archspace/node-sdk';
 import { applyAssignability, assignable, isValueOfType, parsePortType } from '@archspace/types';
+import { resolvePromotions, type ResolvedPromotions } from '@archspace/node-sdk/promotion';
 import { canonicalJson, hashValue } from './canonical.js';
 import { createRunCache, type RunCache } from './cache.js';
 import { edgeLabel, type EngineEdgeSpec, type EngineGraph } from './graph.js';
@@ -203,6 +204,16 @@ export function startRun(graph: EngineGraph, opts: RunOptions): RunHandle {
   const manifestById = new Map<string, NodeManifest>();
   for (const id of demanded) manifestById.set(id, registry.get(specById.get(id)!.type)!.manifest);
 
+  // Effective input ports per node, resolved ONCE from the same
+  // `(manifest, promoted)` pair `validateGraph` used (§5.1, ADR-0017). Two
+  // independent derivations of this list is the failure mode the ADR names:
+  // a graph passes validation and then assembles a different port set, and
+  // nothing reports it because both halves are individually correct.
+  const promotionById = new Map<string, ResolvedPromotions>();
+  for (const id of demanded) {
+    promotionById.set(id, resolvePromotions(manifestById.get(id)!, specById.get(id)!.promoted));
+  }
+
   // Dependency bookkeeping for the ready set.
   const remainingDeps = new Map<string, number>();
   const dependents = new Map<string, Set<string>>();
@@ -287,7 +298,7 @@ export function startRun(graph: EngineGraph, opts: RunOptions): RunHandle {
   function assembleInputs(nodeId: string, manifest: NodeManifest): Record<string, Value | undefined> {
     const inputs: Record<string, Value | undefined> = {};
     const ports = incomingByPort.get(nodeId);
-    for (const port of manifest.inputs) {
+    for (const port of promotionById.get(nodeId)?.inputs ?? manifest.inputs) {
       const edges = ports?.get(port.id) ?? [];
       if (port.variadic) {
         inputs[port.id] = edges.length > 0 ? edges.map((e) => deliverEdge(e, port)) : undefined;
@@ -520,7 +531,28 @@ export function startRun(graph: EngineGraph, opts: RunOptions): RunHandle {
       return;
     }
 
+    // §5.1: "a wired value overrides the configured one". The fold happens
+    // HERE — after defaults, before the cache key — and that placement is the
+    // whole correctness argument. A value that reached `execute` without
+    // reaching `hashValue` would be memoized under a key that does not
+    // describe it, and §7.3's "a cache entry is valid forever by construction"
+    // would silently stop being true.
+    //
+    // The promoted port is then DELETED from `inputs`. `execute(ctx, inputs,
+    // params)` must see a promoted param in exactly one place, and §5.1 says
+    // which one: it is a param that happens to be wired, not an input that
+    // happens to have a default. Leaving it in both would also hash it twice.
+    // (mcp-host's `callArguments` merges from both and so is correct either
+    // way — but it is correct by accident only if nothing else reads `inputs`.)
+    const promotion = promotionById.get(id);
     const params = applySchemaDefaults(manifest.params, spec.config);
+    if (promotion !== undefined && promotion.promotedIds.size > 0) {
+      for (const portId of promotion.promotedIds) {
+        const wired = inputs[portId];
+        if (wired !== undefined) params[portId] = wired;
+        delete inputs[portId];
+      }
+    }
 
     // Memoization: only 'pure' manifests participate; effectful nodes always run.
     let cacheKey: string | undefined;

@@ -1,11 +1,12 @@
 /** Pre-run hard validation (ARCHITECTURE §6.2 checkpoint three + §7.1). */
-import type { NodeManifest, NodeRegistry } from '@archspace/node-sdk';
+import type { NodeManifest, NodeRegistry, PortDecl } from '@archspace/node-sdk';
+import { resolvePromotions } from '@archspace/node-sdk/promotion';
 import { assignable } from '@archspace/types';
 import { edgeLabel, type EngineEdgeSpec, type EngineGraph, type EngineNodeSpec } from './graph.js';
 
 export interface ValidationIssue {
   severity: 'error' | 'warning';
-  code: string; // 'unknown-type' | 'version-mismatch' | 'cycle' | 'bad-edge' | 'type-mismatch' | 'missing-input' | 'multi-edge' | 'unknown-target' | 'duplicate-node'
+  code: string; // 'unknown-type' | 'version-mismatch' | 'cycle' | 'bad-edge' | 'bad-promotion' | 'type-mismatch' | 'missing-input' | 'multi-edge' | 'unknown-target' | 'duplicate-node'
   message: string;
   nodeId?: string;
   edge?: EngineEdgeSpec;
@@ -30,6 +31,14 @@ export function validateGraph(graph: EngineGraph, registry: NodeRegistry): Valid
   const issues: ValidationIssue[] = [];
   const specById = new Map<string, EngineNodeSpec>();
   const manifestById = new Map<string, NodeManifest>();
+  // The EFFECTIVE input ports per node: declared inputs plus promoted params
+  // (§5.1, ADR-0017). Derived once per node and read everywhere below, because
+  // a graph that validates against one port list and executes against another
+  // is the failure this whole design exists to prevent — `startRun` resolves
+  // promotions from the same `(manifest, promoted)` pair for the same reason.
+  const inputsById = new Map<string, PortDecl[]>();
+  const inputPort = (nodeId: string, portId: string): PortDecl | undefined =>
+    inputsById.get(nodeId)?.find((p) => p.id === portId);
 
   // Nodes: duplicates, unknown types, version pins.
   for (const node of graph.nodes) {
@@ -65,6 +74,16 @@ export function validateGraph(graph: EngineGraph, registry: NodeRegistry): Valid
       continue; // the pinned contract is unknown — skip port-level checks for this node
     }
     manifestById.set(node.id, mod.manifest);
+    const resolved = resolvePromotions(mod.manifest, node.promoted);
+    inputsById.set(node.id, resolved.inputs);
+    for (const issue of resolved.issues) {
+      issues.push({
+        severity: 'error',
+        code: 'bad-promotion',
+        message: `node "${node.id}": ${issue.message}`,
+        nodeId: node.id,
+      });
+    }
   }
 
   // Edges: endpoint resolution, port existence, type compatibility.
@@ -92,7 +111,7 @@ export function validateGraph(graph: EngineGraph, registry: NodeRegistry): Valid
     const fromManifest = fromSpec ? manifestById.get(fromSpec.id) : undefined;
     const toManifest = toSpec ? manifestById.get(toSpec.id) : undefined;
     const fromPort = fromManifest?.outputs.find((p) => p.id === edge.from.port);
-    const toPort = toManifest?.inputs.find((p) => p.id === edge.to.port);
+    const toPort = toSpec ? inputPort(toSpec.id, edge.to.port) : undefined;
     if (fromManifest && !fromPort) {
       issues.push({
         severity: 'error',
@@ -102,14 +121,31 @@ export function validateGraph(graph: EngineGraph, registry: NodeRegistry): Valid
       });
     }
     if (toManifest && !toPort) {
+      // Say which mistake it is. An edge into a name that is a *param* on the
+      // target is the commonest hand-edit and the commonest merge casualty:
+      // the promotion is one line away, and "unknown input port" is a dead end
+      // in front of a one-line fix.
+      const param = toManifest.params.properties?.[edge.to.port];
+      const promotable = param?.['x-archspace']?.promotable === true;
       issues.push({
         severity: 'error',
         code: 'bad-edge',
-        message: `edge ${label} references unknown input port "${edge.to.port}" on node "${edge.to.node}"`,
+        message: promotable
+          ? `edge ${label}: "${edge.to.port}" is a promotable param on ${toManifest.type}@${toManifest.version}, ` +
+            `not yet an input port — add it to that node's "promoted:" list to expose it`
+          : param !== undefined
+            ? `edge ${label}: "${edge.to.port}" is a param on ${toManifest.type}@${toManifest.version} but is not ` +
+              `promotable, so it cannot be wired; set it in the node's config instead`
+            : `edge ${label} references unknown input port "${edge.to.port}" on node "${edge.to.node}"`,
         edge,
       });
     }
-    if (toPort) {
+    // Recorded whether or not the port resolved. Gating this on `toPort` meant
+    // a mistyped port name produced its accurate `bad-edge` AND a second,
+    // false `missing-input` — because the required-input sweep below then saw
+    // no incoming edge for a port the user had, in fact, wired. Two errors for
+    // one mistake, one of them accusing innocent work.
+    if (toSpec) {
       const key = portKey(edge.to.node, edge.to.port);
       const list = edgesInto.get(key) ?? [];
       list.push(edge);
@@ -132,7 +168,7 @@ export function validateGraph(graph: EngineGraph, registry: NodeRegistry): Valid
   for (const [key, list] of edgesInto) {
     if (list.length <= 1) continue;
     const [nodeId, portId] = key.split('\u0000');
-    const port = manifestById.get(nodeId)?.inputs.find((p) => p.id === portId);
+    const port = inputPort(nodeId, portId);
     if (port && !port.variadic) {
       issues.push({
         severity: 'error',
@@ -144,11 +180,17 @@ export function validateGraph(graph: EngineGraph, registry: NodeRegistry): Valid
     }
   }
 
-  // Required inputs must be wired (params are defaults-only in this build).
+  // Required inputs must be wired. A PROMOTED input never lands here: it is
+  // always `required: false`, because the configured param (or its schema
+  // default) is the value it falls back to — the seam this comment used to
+  // describe as "params are defaults-only in this build" (ADR-0017).
   for (const node of graph.nodes) {
     const manifest = manifestById.get(node.id);
     if (!manifest || specById.get(node.id) !== node) continue;
-    for (const port of manifest.inputs) {
+    // Effective inputs, so a promoted port is never "required" — a promoted
+    // param has its configured value or its schema default behind it, which is
+    // exactly what "a wired value overrides the configured one" means.
+    for (const port of inputsById.get(node.id) ?? manifest.inputs) {
       if (port.required === false) continue;
       if ((edgesInto.get(portKey(node.id, port.id)) ?? []).length === 0) {
         issues.push({

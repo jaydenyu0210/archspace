@@ -12,6 +12,7 @@
 import { isMap, isSeq, type Document } from 'yaml';
 import type { DocEdge, DocIssue, DocNode, WorkflowDoc } from './types.js';
 import { parseEdge } from './edge.js';
+import { canonicalPromoted } from './promoted.js';
 import { deriveRequires } from './requires.js';
 import { findPair } from './yaml-util.js';
 
@@ -134,6 +135,24 @@ export function extractWorkflow(ydoc: Document): Extraction {
     } else if (n['schemaHash'] !== undefined && n['schemaHash'] !== null) {
       warn(`node "${id}" schemaHash is not a string; ignoring`, `${path}.schemaHash`);
     }
+    // `promoted:` — a set of param names, normalised to sorted-and-deduped on
+    // read. This is the single reading a save also uses for its diff baseline
+    // (`saveWorkflow` re-extracts the CST it is about to patch), so normalising
+    // here means a hand-written `[b, a]` compares equal to itself and the file
+    // is not rewritten until the promotions actually change.
+    let promoted: string[] | undefined;
+    const p = n['promoted'];
+    if (p !== undefined && p !== null) {
+      if (!Array.isArray(p)) {
+        warn(`node "${id}" promoted is not a list; ignoring`, `${path}.promoted`);
+      } else {
+        const names = p.filter((v): v is string => typeof v === 'string' && v !== '');
+        if (names.length !== p.length) {
+          warn(`node "${id}" has a non-string entry in promoted; ignoring those`, `${path}.promoted`);
+        }
+        promoted = canonicalPromoted(names);
+      }
+    }
     let config: Record<string, unknown> = {};
     const c = n['config'];
     if (c === undefined) {
@@ -148,6 +167,7 @@ export function extractWorkflow(ydoc: Document): Extraction {
       type,
       version,
       ...(schemaHash !== undefined ? { schemaHash } : {}),
+      ...(promoted !== undefined ? { promoted } : {}),
       config,
     });
   });

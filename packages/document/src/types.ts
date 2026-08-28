@@ -26,6 +26,21 @@ export interface DocNode {
   type: string;
   version: number;
   schemaHash?: string;
+  /**
+   * Params this node instance exposes as input ports (§5.1, ADR-0017).
+   *
+   * Sorted and deduped — it is a set, written down, and `requires:` is the
+   * house precedent for a sorted list. Absent when empty, so a document that
+   * promotes nothing is byte-identical to one written before promotion
+   * existed.
+   *
+   * Persisted here rather than inferred from the edges, because a promotion
+   * that is not yet wired is a real state a user creates and must not lose,
+   * and because `packages/document` resolves no node registry: without this
+   * line an edge into a param is indistinguishable from a typo to every reader
+   * of the file, human or otherwise.
+   */
+  promoted?: string[];
   config: Record<string, unknown>;
 }
 

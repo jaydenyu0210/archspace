@@ -18,7 +18,7 @@ import { isMap, isSeq, parseDocument, type Document } from 'yaml';
 import type { DocIssue, ParseWorkflowResult } from './types.js';
 import { extractWorkflow } from './extract.js';
 import { WorkflowSource } from './source.js';
-import { UnpaddedFlowSeq, findPair } from './yaml-util.js';
+import { UnpaddedFlowSeq, findPair, keyString } from './yaml-util.js';
 
 /**
  * Parse a workflow document (YAML 1.2, core schema — no implicit-typing
@@ -61,6 +61,21 @@ function adoptCanonicalStyles(ydoc: Document): void {
     for (const p of req.value.items) {
       if (isSeq(p.value) && !(p.value instanceof UnpaddedFlowSeq)) {
         Object.setPrototypeOf(p.value, UnpaddedFlowSeq.prototype);
+      }
+    }
+  }
+  // A node's `promoted:` list, for the same reason: a save that rewrites it
+  // has to produce the emitter's style, and the style lives on the node the
+  // parse produced.
+  const nodes = findPair(root, 'nodes');
+  if (nodes !== undefined && isSeq(nodes.value)) {
+    for (const item of nodes.value.items) {
+      if (!isMap(item)) continue;
+      for (const np of item.items) {
+        if (keyString(np.key) !== 'promoted') continue;
+        if (isSeq(np.value) && !(np.value instanceof UnpaddedFlowSeq)) {
+          Object.setPrototypeOf(np.value, UnpaddedFlowSeq.prototype);
+        }
       }
     }
   }

@@ -19,6 +19,7 @@ import type { WorkflowSource } from './source.js';
 import { extractWorkflow } from './extract.js';
 import { deriveRequires, type DeriveRequiresOptions } from './requires.js';
 import { formatEdge } from './edge.js';
+import { canonicalPromoted, samePromoted } from './promoted.js';
 import { assertValidDoc, canonicalNodeShape } from './emit.js';
 import {
   STR_OPTS,
@@ -35,7 +36,8 @@ import {
 const ROOT_ORDER = ['archspace', 'kind', 'meta', 'requires', 'nodes', 'edges', 'layout'] as const;
 const META_ORDER = ['name', 'description'] as const;
 const REQUIRES_ORDER = ['mcp', 'ai', 'plugins'] as const;
-const NODE_ORDER = ['id', 'type', 'version', 'schemaHash', 'config'] as const;
+/** Exported for the one test that keeps it in step with `canonicalNodeShape`. */
+export const NODE_ORDER = ['id', 'type', 'version', 'schemaHash', 'promoted', 'config'] as const;
 
 type RootKey = (typeof ROOT_ORDER)[number];
 
@@ -203,6 +205,21 @@ export function saveWorkflow(
         mapSet(ydoc, nodeMap, 'schemaHash', dn.schemaHash, NODE_ORDER);
         touch();
       }
+      // `promoted:` is a list, so the comparison is element-wise and not `!==`
+      // — two arrays with the same contents are different objects, and a
+      // reference test here would rewrite the line on every save and break
+      // rule 3's byte-identical no-op. Both sides are already sorted and
+      // deduped by `extractWorkflow`, which is also where the baseline `bn`
+      // came from, so equal contents really do mean equal order.
+      const wantPromoted = canonicalPromoted(dn.promoted);
+      if (!samePromoted(wantPromoted, bn.promoted)) {
+        if (wantPromoted === undefined) {
+          if (deletePair(nodeMap, 'promoted')) touch();
+        } else {
+          mapSet(ydoc, nodeMap, 'promoted', makeFlowList(ydoc, wantPromoted), NODE_ORDER);
+          touch();
+        }
+      }
       patchConfig(ydoc, nodeMap, dn.config ?? {}, bn.config, touch);
     }
 
@@ -313,9 +330,14 @@ export function saveWorkflow(
 
 /** Build a canonical unpadded flow list for one requires entry. */
 function makeRequiresList(ydoc: Document, target: WorkflowRequires, key: (typeof REQUIRES_ORDER)[number]): YAMLSeq {
+  return makeFlowList(ydoc, target[key]);
+}
+
+/** The one list style this format uses: `[a, b]`, unpadded, on one line. */
+function makeFlowList(ydoc: Document, values: readonly string[]): YAMLSeq {
   const seq = new UnpaddedFlowSeq();
   seq.flow = true;
-  for (const v of target[key]) seq.items.push(ydoc.createNode(v));
+  for (const v of values) seq.items.push(ydoc.createNode(v));
   return seq;
 }
 

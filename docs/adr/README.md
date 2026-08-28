@@ -21,3 +21,4 @@ Format: MADR-lite (Context → Decision → Consequences → Alternatives). Stat
 | [0014](0014-windows-packaging.md) | Windows build shipped unsigned; macOS stays primary | Accepted |
 | [0015](0015-dxf-export.md) | Floor plans export as hand-written DXF R12; no DWG, no invented door swings | Accepted |
 | [0016](0016-ifc-geometry.md) | IFC gains real swept-solid geometry, verified against IfcOpenShell | Accepted |
+| [0017](0017-param-promotion.md) | Param promotion persists as a sorted `promoted:` list on the node entry | Accepted |

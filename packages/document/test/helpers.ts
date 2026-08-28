@@ -47,6 +47,12 @@ export function normalizeDoc(d: WorkflowDoc): WorkflowDoc {
       type: n.type,
       version: n.version,
       ...(n.schemaHash !== undefined ? { schemaHash: n.schemaHash } : {}),
+      // Sorted and deduped, matching `extractWorkflow`. Both sides of every
+      // property must agree on the canonical form or the round-trip assertion
+      // is testing the generator rather than the serializer.
+      ...(n.promoted !== undefined && n.promoted.length > 0
+        ? { promoted: [...new Set(n.promoted)].sort() }
+        : {}),
       config: n.config ?? {},
     })),
     edges: d.edges.map((e) => ({ from: { ...e.from }, to: { ...e.to } })),
@@ -78,10 +84,22 @@ const nameArb = fc.oneof(
   fc.constantFrom('true', '007', 'null', 'a: b', '- x', 'Untitled workflow', '#hash'),
 );
 
+/**
+ * Deliberately `fc.array`, not `fc.uniqueArray`, and deliberately unsorted.
+ *
+ * `promoted:` is normalised to sorted-and-deduped on read AND on write, and a
+ * generator that only ever produced canonical lists would keep all six
+ * properties green while proving nothing about the normalisation — which is
+ * the one part of this field that can go wrong. Duplicates and reverse order
+ * are the inputs that make round-trip and no-op-save load-bearing.
+ */
+const promotedArb = fc.option(fc.array(portArb, { maxLength: 4 }), { nil: undefined });
+
 const nodeRecArb = fc.record({
   type: typeArb,
   version: fc.integer({ min: 1, max: 9 }),
   schemaHash: fc.option(fc.stringMatching(/^b3:[0-9a-f]{4,8}$/), { nil: undefined }),
+  promoted: promotedArb,
   config: configArb,
 });
 
@@ -96,6 +114,7 @@ const nodesArb: fc.Arbitrary<DocNode[]> = fc
             type: r.type,
             version: r.version,
             ...(r.schemaHash !== undefined ? { schemaHash: r.schemaHash } : {}),
+            ...(r.promoted !== undefined && r.promoted.length > 0 ? { promoted: r.promoted } : {}),
             config: r.config,
           })),
         ),

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { emitWorkflow, parseWorkflow } from '../src/index.js';
-import type { WorkflowDoc } from '../src/index.js';
+import { canonicalNodeShape } from '../src/emit.js';
+import { NODE_ORDER } from '../src/save.js';
+import type { DocNode, WorkflowDoc } from '../src/index.js';
 
 const ARCHITECTURE_EXAMPLE: WorkflowDoc = {
   meta: {
@@ -233,5 +235,43 @@ describe('ambiguous scalars (YAML 1.2 core schema)', () => {
       nodes: [{ id: 'n_a', type: 'aec.x', version: 1, config: { prompt: 'one\ntwo\n' } }],
     });
     expect(text).toContain('prompt: |\n        one\n        two\n');
+  });
+});
+
+/**
+ * The two hand-written key orders, checked against each other.
+ *
+ * A node entry's canonical key order is written down twice: as the property
+ * order of the object `canonicalNodeShape` builds (used when a whole entry is
+ * emitted or appended), and as the `NODE_ORDER` array (used by `insertIndexFor`
+ * to place a key patched into an *existing* entry). Nothing in the language
+ * keeps them in step, and `insertIndexFor` returns `map.items.length` for any
+ * key it does not find — so a key added to one and not the other lands in the
+ * middle of a fresh entry and at the end of a patched one, and the only way to
+ * see it is to diff two documents written by different paths.
+ *
+ * emit.ts's own header claims the two paths "cannot disagree about the shape of
+ * a node entry". This is what makes that true rather than intended. Adding
+ * `promoted:` doubled the surface, which is why it is written now.
+ */
+describe('canonical key order is declared once, in effect', () => {
+  it('canonicalNodeShape and NODE_ORDER list the same keys in the same order', () => {
+    const everyField: DocNode = {
+      id: 'n_aaaaaa',
+      type: 'aec.space_program',
+      version: 3,
+      schemaHash: 'b3:deadbeef',
+      promoted: ['a_param'],
+      config: { some: 'value' },
+    };
+    expect(Object.keys(canonicalNodeShape(everyField))).toEqual([...NODE_ORDER]);
+  });
+
+  it('omits the optional keys when they are empty, in the same order', () => {
+    const minimal: DocNode = { id: 'n_bbbbbb', type: 'aec.project_brief', version: 1, config: {} };
+    expect(Object.keys(canonicalNodeShape(minimal))).toEqual(['id', 'type', 'version']);
+    // Empty is absent, not `promoted: []` — a document that promotes nothing
+    // must be byte-identical to one written before promotion existed.
+    expect(Object.keys(canonicalNodeShape({ ...minimal, promoted: [] }))).toEqual(['id', 'type', 'version']);
   });
 });

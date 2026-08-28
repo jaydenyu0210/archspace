@@ -17,6 +17,7 @@ import { Document, Scalar, isMap, isSeq } from 'yaml';
 import type { DocNode, WorkflowDoc } from './types.js';
 import { deriveRequires, type DeriveRequiresOptions } from './requires.js';
 import { formatEdge } from './edge.js';
+import { canonicalPromoted } from './promoted.js';
 import { STR_OPTS, UnpaddedFlowSeq, hardenScalars, keyString, roundPos } from './yaml-util.js';
 
 /**
@@ -30,7 +31,16 @@ export const REQUIRES_COMMENT =
 
 /**
  * Canonical shape of one node entry: id, type, version, schemaHash (omitted
- * when absent), config (omitted when empty) — ARCHITECTURE §4.2 rule 1.
+ * when absent), promoted (omitted when empty), config (omitted when empty) —
+ * ARCHITECTURE §4.2 rule 1.
+ *
+ * This object's property order IS the emitted key order, and `NODE_ORDER` in
+ * `save.ts` is the same order as an array, for the insert position of a key
+ * patched into an existing entry. Nothing in the language keeps two
+ * hand-written orders in step, so `emit.test.ts` asserts they are equal — a
+ * key present here and missing there lands at the end of a patched entry and
+ * in the middle of a fresh one, and only a diff of two documents written by
+ * different paths would ever show it.
  */
 export function canonicalNodeShape(n: DocNode): Record<string, unknown> {
   return {
@@ -38,6 +48,13 @@ export function canonicalNodeShape(n: DocNode): Record<string, unknown> {
     type: n.type,
     version: n.version,
     ...(n.schemaHash !== undefined ? { schemaHash: n.schemaHash } : {}),
+    // Canonicalised HERE, not just on read. `extractWorkflow` normalises what
+    // it parses, so an emitter that wrote the caller's order verbatim broke
+    // canonical stability outright: emit -> parse -> emit produced two
+    // different files for one document. The property suite caught exactly
+    // that. Both directions must agree on the canonical form, or the form is
+    // not canonical.
+    ...(canonicalPromoted(n.promoted) !== undefined ? { promoted: canonicalPromoted(n.promoted) } : {}),
     ...(Object.keys(n.config ?? {}).length > 0 ? { config: n.config } : {}),
   };
 }
@@ -105,6 +122,21 @@ export function emitWorkflow(doc: WorkflowDoc, options: DeriveRequiresOptions = 
           if (isSeq(rp.value)) {
             Object.setPrototypeOf(rp.value, UnpaddedFlowSeq.prototype);
             rp.value.flow = true;
+          }
+        }
+      }
+    }
+    // `promoted:` takes the same one-line unpadded style as the requires
+    // lists — `[file_name, level]`. §4.2 rule 6 makes a wiring change one line
+    // in a diff; a promotion is the same kind of change, and a block sequence
+    // would spend three lines saying what one says.
+    if (k === 'nodes' && isSeq(pair.value)) {
+      for (const item of pair.value.items) {
+        if (!isMap(item)) continue;
+        for (const np of item.items) {
+          if (keyString(np.key) === 'promoted' && isSeq(np.value)) {
+            Object.setPrototypeOf(np.value, UnpaddedFlowSeq.prototype);
+            np.value.flow = true;
           }
         }
       }

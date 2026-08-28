@@ -6,6 +6,7 @@
  */
 
 export type { EngineNodeSpec, EngineEdgeSpec, EngineGraph } from './graph.js';
+export { toEngineGraph } from './graph.js';
 
 export type {
   NodeFailureKind,

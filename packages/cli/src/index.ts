@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, resolve as resolvePath } from 'node:path';
 import { parseWorkflow } from '@archspace/document';
-import { startRun, validateGraph, type EngineGraph, type RunEvent } from '@archspace/engine';
+import { startRun, toEngineGraph, validateGraph, type EngineGraph, type RunEvent } from '@archspace/engine';
 import { assetFileName, type AssetRef, type AssetStore } from '@archspace/node-sdk';
 import { envVarForSecret } from './config.js';
 import { createRuntime, type Runtime } from './runtime.js';
@@ -128,10 +128,7 @@ async function cmdRun(file: string): Promise<number> {
   try {
     for (const issue of rt.config.issues) console.warn(`  [warning] ${issue}`);
 
-    const graph: EngineGraph = {
-      nodes: parsed.doc.nodes.map((n) => ({ id: n.id, type: n.type, version: n.version, config: n.config })),
-      edges: parsed.doc.edges.map((e) => ({ from: e.from, to: e.to })),
-    };
+    const graph: EngineGraph = toEngineGraph(parsed.doc);
 
     const issues = validateGraph(graph, rt.registry);
     for (const issue of issues) console.warn(`  [${issue.severity}] ${issue.code}: ${issue.message}`);
@@ -478,10 +475,7 @@ async function cmdDoctor(file: string | undefined): Promise<number> {
       console.log(`  ai: ${parsed.doc.requires.ai.join(', ') || '(none)'}`);
       console.log(`  plugins: ${parsed.doc.requires.plugins.join(', ') || '(none)'}`);
       await reportMissingRequirements(rt, parsed.doc.requires);
-      const graph: EngineGraph = {
-        nodes: parsed.doc.nodes.map((n) => ({ id: n.id, type: n.type, version: n.version, config: n.config })),
-        edges: parsed.doc.edges.map((e) => ({ from: e.from, to: e.to })),
-      };
+      const graph: EngineGraph = toEngineGraph(parsed.doc);
       const issues = validateGraph(graph, rt.registry);
       if (issues.length === 0) console.log('\nThis workflow is ready to run here.');
       else for (const issue of issues) console.log(`  [${issue.severity}] ${issue.code}: ${issue.message}`);
