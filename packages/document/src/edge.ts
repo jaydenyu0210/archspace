@@ -31,3 +31,18 @@ export function parseEdge(s: string): DocEdge | null {
 export function formatEdge(e: DocEdge): string {
   return `${e.from.node}.${e.from.port} -> ${e.to.node}.${e.to.port}`;
 }
+
+/**
+ * One endpoint segment, by the same grammar `EDGE_RE` reads.
+ *
+ * Exported so `assertValidDoc` can refuse to write what `parseEdge` could not
+ * read back — a dot, a space or a `>` in a node id or a port name emits a line
+ * that is not an edge, and the file silently stops round-tripping. Derived from
+ * the one regex rather than restated, so the writer's idea of a legal name
+ * cannot drift from the reader's.
+ */
+const SEGMENT_RE = /^[A-Za-z0-9_-]+$/;
+
+export function isEdgeSegment(s: string): boolean {
+  return SEGMENT_RE.test(s);
+}

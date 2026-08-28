@@ -114,8 +114,13 @@ function spawnEngine(): void {
     // in-flight run (if any) is dead (§3.2). Anything waiting on the old
     // process is dead with it, and must be told so rather than left hanging.
     rejectPendingEngineCalls('the engine stopped before it could answer');
+    // `spawnEngine` opens the control channel itself, so calling
+    // `connectControl` again here made a SECOND MessageChannel on every
+    // restart: `controlPort` was overwritten and the first channel leaked with
+    // its listener still attached, on both sides. One per restart, and the
+    // restart path is exactly the one that runs repeatedly when the engine is
+    // unhealthy.
     spawnEngine();
-    connectControl();
     win?.webContents.send('engine:restarted', code);
   });
   connectControl();

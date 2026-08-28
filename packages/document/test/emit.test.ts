@@ -275,3 +275,61 @@ describe('canonical key order is declared once, in effect', () => {
     expect(Object.keys(canonicalNodeShape({ ...minimal, promoted: [] }))).toEqual(['id', 'type', 'version']);
   });
 });
+
+/**
+ * What `assertValidDoc` is for: refusing to write what cannot be read back.
+ *
+ * Its own comment says "a doc that violates these could not be re-parsed, so
+ * refuse to serialize it", and the name check was missing — so an id or a port
+ * containing a dot, a space or a `>` formatted into an edge line `parseEdge`
+ * returns null for. Nothing threw. The file was written, looked plausible, and
+ * had quietly stopped round-tripping; the next open reported a malformed edge
+ * on a document the app itself had just produced.
+ */
+describe('assertValidDoc refuses names the edge grammar cannot carry', () => {
+  const docWith = (nodeId: string, port: string): WorkflowDoc => ({
+    meta: { name: 'Grammar' },
+    requires: { mcp: [], ai: [], plugins: [] },
+    nodes: [
+      { id: nodeId, type: 'aec.project_brief', version: 1, config: {} },
+      { id: 'n_bbbbbb', type: 'aec.space_program', version: 1, config: {} },
+    ],
+    edges: [{ from: { node: nodeId, port }, to: { node: 'n_bbbbbb', port: 'brief' } }],
+    layout: {},
+  });
+
+  it('accepts the names it always accepted', () => {
+    expect(() => emitWorkflow(docWith('n_aaaaaa', 'brief'))).not.toThrow();
+    expect(() => emitWorkflow(docWith('Node-1_x', 'out_2-b'))).not.toThrow();
+  });
+
+  it('refuses a port name with a dot, which would split into the wrong endpoint', () => {
+    // The MCP case: a server may publish an argument called `file.path`, and
+    // promotion makes a param name a port name (ADR-0017).
+    expect(() => emitWorkflow(docWith('n_aaaaaa', 'file.path'))).toThrow(/port name "file\.path"/);
+  });
+
+  it('refuses a node id or port that would not parse back', () => {
+    for (const bad of ['has space', 'has>arrow', 'has.dot', 'has/slash', '']) {
+      expect(() => emitWorkflow(docWith(bad, 'brief')), `node id ${JSON.stringify(bad)}`).toThrow(/node id/);
+      expect(() => emitWorkflow(docWith('n_aaaaaa', bad)), `port ${JSON.stringify(bad)}`).toThrow(/port name/);
+    }
+  });
+
+  it('checks a node id even when no edge touches it', () => {
+    // The id is fixed for the life of the node and an edge may be added later,
+    // so writing an unusable one now is a fault now.
+    const doc: WorkflowDoc = {
+      meta: { name: 'Grammar' },
+      requires: { mcp: [], ai: [], plugins: [] },
+      nodes: [{ id: 'not a valid id', type: 'aec.project_brief', version: 1, config: {} }],
+      edges: [],
+      layout: {},
+    };
+    expect(() => emitWorkflow(doc)).toThrow(/node id/);
+  });
+
+  it('says what is allowed, not merely that the name is wrong', () => {
+    expect(() => emitWorkflow(docWith('n_aaaaaa', 'file.path'))).toThrow(/letters, digits, "_" and "-"/);
+  });
+});

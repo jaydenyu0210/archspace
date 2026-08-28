@@ -16,7 +16,7 @@
 import { Document, Scalar, isMap, isSeq } from 'yaml';
 import type { DocNode, WorkflowDoc } from './types.js';
 import { deriveRequires, type DeriveRequiresOptions } from './requires.js';
-import { formatEdge } from './edge.js';
+import { formatEdge, isEdgeSegment } from './edge.js';
 import { canonicalPromoted } from './promoted.js';
 import { STR_OPTS, UnpaddedFlowSeq, hardenScalars, keyString, roundPos } from './yaml-util.js';
 
@@ -59,18 +59,43 @@ export function canonicalNodeShape(n: DocNode): Record<string, unknown> {
   };
 }
 
-/** Shared input validation for emit/save: a doc that violates these could
- * not be re-parsed, so refuse to serialize it. */
+/**
+ * Shared input validation for emit/save: a doc that violates these could not be
+ * re-parsed, so refuse to serialize it.
+ *
+ * The name check is the one that used to be missing, and it is the one that
+ * makes the sentence above true. Edges are single-line strings
+ * (`<node>.<port> -> <node>.<port>`, §4.2 rule 6) over a `[A-Za-z0-9_-]+`
+ * grammar, so a node id or port name containing a dot, a space or a `>`
+ * formats into a line `parseEdge` returns null for. Nothing threw: the file was
+ * written, looked plausible, and had quietly stopped round-tripping — the next
+ * open reported a malformed edge on a document the app itself had produced.
+ *
+ * Node ids are checked whether or not an edge touches them, because an edge may
+ * be added later and the id is fixed for the life of the node.
+ */
 export function assertValidDoc(doc: WorkflowDoc): void {
   const seen = new Set<string>();
   for (const n of doc.nodes) {
     if (seen.has(n.id)) throw new TypeError(`duplicate node id "${n.id}"`);
+    if (!isEdgeSegment(n.id)) {
+      throw new TypeError(
+        `node id ${JSON.stringify(n.id)} cannot be written: an id may contain only letters, digits, "_" and "-", ` +
+          `or no edge referring to it could be read back`,
+      );
+    }
     seen.add(n.id);
   }
   for (const e of doc.edges) {
     for (const end of [e.from, e.to]) {
       if (!seen.has(end.node)) {
         throw new TypeError(`edge references unknown node "${end.node}"`);
+      }
+      if (!isEdgeSegment(end.port)) {
+        throw new TypeError(
+          `port name ${JSON.stringify(end.port)} on node "${end.node}" cannot be written: a port name may contain ` +
+            `only letters, digits, "_" and "-", or the edge line could not be read back`,
+        );
       }
     }
   }
