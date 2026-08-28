@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, resolve as resolvePath } from 'node:path';
 import { parseWorkflow, type DocIssue } from '@archspace/document';
+import { MCP_CONFIG_FILENAME } from '@archspace/mcp-host';
 import { GraphValidationError, startRun, toEngineGraph, validateGraph, type EngineGraph, type RunEvent } from '@archspace/engine';
 import { assetFileName, type AssetRef, type AssetStore } from '@archspace/node-sdk';
 import { envVarForSecret } from './config.js';
@@ -82,6 +83,29 @@ function usage(code = 2): never {
     ].join('\n'),
   );
   process.exit(code);
+}
+
+/**
+ * Say what could not be read out of the settings directory.
+ *
+ * Every command that builds a runtime has an opinion about the config, and only
+ * `run` and `doctor` were passing the parse errors on. So `archspace mcp` on a
+ * broken `mcp.yaml` printed "No MCP servers configured. Add them to
+ * .../mcp.yaml" — a sentence that is not merely unhelpful but false, and that
+ * sends the user to add servers to a file that already has them and cannot be
+ * read. Same for `ai`, `nodes` and `plugins`.
+ *
+ * Returns whether anything was reported, so a caller can tell "no servers" from
+ * "no servers I could parse" without re-deriving it.
+ */
+/** The mcp.yaml this run read, spelled with the platform's own separator. */
+function mcpConfigPathFor(rt: Runtime): string {
+  return join(rt.config.dir, MCP_CONFIG_FILENAME);
+}
+
+function reportConfigIssues(rt: Runtime): boolean {
+  for (const issue of rt.config.issues) console.warn(`  [warning] ${issue}`);
+  return rt.config.issues.length > 0;
 }
 
 async function runtime(): Promise<Runtime> {
@@ -168,7 +192,7 @@ async function cmdRun(file: string): Promise<number> {
 
   const rt = await runtime();
   try {
-    for (const issue of rt.config.issues) console.warn(`  [warning] ${issue}`);
+    reportConfigIssues(rt);
 
     const graph: EngineGraph = toEngineGraph(parsed.doc);
 
@@ -374,6 +398,7 @@ async function reportMissingRequirements(
 async function cmdNodes(): Promise<number> {
   const rt = await runtime();
   try {
+    reportConfigIssues(rt);
     const manifests = rt.registry.manifests().sort((a, b) => a.type.localeCompare(b.type));
     if (flag('json')) {
       console.log(JSON.stringify(manifests, null, 2));
@@ -393,6 +418,7 @@ async function cmdNodes(): Promise<number> {
 async function cmdPlugins(): Promise<number> {
   const rt = await runtime();
   try {
+    reportConfigIssues(rt);
     const list = rt.plugins?.list() ?? [];
     if (list.length === 0) {
       console.log('No plugins found.');
@@ -429,7 +455,12 @@ async function cmdPlugins(): Promise<number> {
 async function cmdMcp(): Promise<number> {
   const rt = await runtime();
   try {
+    const hadIssues = reportConfigIssues(rt);
     const connect = options('connect');
+    // A failed connection is a failed command. `archspace mcp --connect revit`
+    // is the thing a script runs before it depends on that server, and exiting
+    // 0 after printing "failed:" told every one of those scripts to carry on.
+    let connectFailed = false;
     for (const name of connect) {
       process.stdout.write(`connecting ${name}… `);
       try {
@@ -437,13 +468,20 @@ async function cmdMcp(): Promise<number> {
         console.log('ok');
       } catch (err) {
         console.log(`failed: ${err instanceof Error ? err.message : String(err)}`);
+        connectFailed = true;
       }
     }
 
     const servers = rt.mcp.list();
     if (servers.length === 0) {
-      console.log(`No MCP servers configured. Add them to ${rt.config.dir}/mcp.yaml.`);
-      return 0;
+      // "None configured" and "none I could read" are different problems with
+      // different fixes, and the second one used to be reported as the first.
+      if (hadIssues) {
+        console.log(`No MCP servers could be read from ${mcpConfigPathFor(rt)} — see the warnings above.`);
+        return 1;
+      }
+      console.log(`No MCP servers configured. Add them to ${mcpConfigPathFor(rt)}.`);
+      return connectFailed ? 1 : 0;
     }
     for (const s of servers) {
       console.log(`${s.name}  [${s.state}]  ${s.transport}  ${s.target}`);
@@ -455,7 +493,7 @@ async function cmdMcp(): Promise<number> {
       }
       console.log('');
     }
-    return 0;
+    return connectFailed ? 1 : 0;
   } finally {
     await rt.close();
   }
@@ -464,6 +502,7 @@ async function cmdMcp(): Promise<number> {
 async function cmdAi(): Promise<number> {
   const rt = await runtime();
   try {
+    reportConfigIssues(rt);
     const probe = option('probe');
     if (probe !== undefined) {
       process.stdout.write(`probing "${probe}"… `);

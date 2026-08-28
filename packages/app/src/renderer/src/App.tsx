@@ -56,7 +56,11 @@ export default function App() {
       const result = await window.archspace.save(saveAs ? null : store.filePath, store.buildDoc());
       if (result.ok) {
         store.markSaved(result.path);
-        store.notify('info', `Saved ${result.path.split('/').pop()}`);
+        // Both separators: ADR-0014 ships Windows, where `split('/')` finds
+        // nothing in `C:\Users\me\plan.archspace.yaml` and `.pop()` hands back
+        // the whole path — so the toast that exists to say "saved, and it is
+        // the file you meant" showed a line of path instead of a name.
+        store.notify('info', `Saved ${result.path.split(/[\\/]/).pop() ?? result.path}`);
       } else if (!('cancelled' in result)) {
         store.notify('error', `Save failed: ${result.error}`);
       }
