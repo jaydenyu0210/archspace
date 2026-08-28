@@ -1,3 +1,17 @@
 packages:
   - packages/*
   - plugins/*
+
+# Build scripts pnpm is allowed to run. pnpm 10 blocks postinstall scripts by
+# default, and Electron's is not optional: the npm package is a few kilobytes of
+# JavaScript and its ~100 MB runtime is downloaded by that script. Without this
+# list `pnpm install` succeeds, `pnpm dev` then fails with "Error: Electron
+# uninstall", and nothing connects the two.
+#
+# This lives here rather than in package.json's `pnpm` field because pnpm has
+# moved its settings: newer versions ignore that field outright and say so in a
+# warning that is easy to scroll past. A fresh clone on pnpm 11 hit exactly
+# that — the allowlist was silently dropped and Electron never downloaded.
+onlyBuiltDependencies:
+  - electron
+  - esbuild

@@ -205,9 +205,14 @@ This is also the way to run it on a Windows machine with Smart App Control on:
 installer, so nothing is blocked. The app is identical.
 
 If `pnpm dev` reports that Electron's binary is missing, its ~100 MB runtime did
-not download during install. Run `pnpm rebuild electron`, and if that fails,
-`node node_modules/electron/install.js` to see why. More in
-[CONTRIBUTING.md §1](CONTRIBUTING.md#1-prerequisites).
+not download during install. Re-run the installer directly — no pnpm command
+will do it for you:
+
+```sh
+node packages/app/node_modules/electron/install.js
+```
+
+More in [CONTRIBUTING.md §1](CONTRIBUTING.md#1-prerequisites).
 
 Run a workflow with no UI — a real feature, not a test harness:
 

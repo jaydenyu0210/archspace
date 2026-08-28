@@ -44,17 +44,35 @@ is fetched by its own postinstall step. When that step does not complete,
 `Error: Electron uninstall` from deep inside electron-vite — which names neither
 the cause nor the fix, and sends people looking for an uninstall they never ran.
 
-`pnpm dev` and `pnpm smoke` now check for the binary first and say this instead.
-The fix:
+`pnpm dev` and `pnpm smoke` now check for the binary first and print the fix
+instead. Run the installer **directly**:
 
 ```sh
-pnpm rebuild electron
-node node_modules/electron/install.js   # if that fails: shows the real error
+node packages/app/node_modules/electron/install.js
 ```
 
-The usual causes are a proxy, a dropped connection, or antivirus quarantining
-the download. Behind a corporate proxy set `HTTPS_PROXY`, or point Electron at a
-mirror with `ELECTRON_MIRROR`, before retrying.
+Two things about that command are easy to get wrong, and both were:
+
+- **Not through pnpm.** Once the script has been skipped, `pnpm install`,
+  `pnpm install --force`, `pnpm rebuild electron` and `pnpm rebuild -r electron`
+  all decline to re-run it. They report success and change nothing. This was
+  tested, not assumed.
+- **Not from the repo root.** `electron` is a dependency of `@archspace/app`,
+  not of the workspace root, so there is no top-level `node_modules/electron`
+  and the obvious path fails with a module-not-found that looks like a second,
+  unrelated problem.
+
+Why it was skipped, in order of likelihood:
+
+1. **Your pnpm ignored the build-script allowlist.** pnpm has moved its settings
+   out of the `pnpm` field in `package.json` and into `pnpm-workspace.yaml`;
+   newer versions ignore the old location and say so in a warning that is easy
+   to scroll past. This repo declares `onlyBuiltDependencies` in
+   `pnpm-workspace.yaml` for that reason — a fresh clone on pnpm 11 hit exactly
+   this, and Electron never downloaded.
+2. **The download failed** — a proxy, a dropped connection, or antivirus
+   quarantining the archive. Set `HTTPS_PROXY`, or point Electron at a mirror
+   with `ELECTRON_MIRROR`, and retry.
 
 Note that `pnpm build`, `pnpm test` and `pnpm cli` all work without the binary —
 only launching the app needs it.
