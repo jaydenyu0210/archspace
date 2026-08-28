@@ -44,9 +44,10 @@ nodes:
     type: aec.generate_bim_model
     version: 1
     config: {}
-  # The one output with drawable geometry. The IFC above carries the spatial
-  # hierarchy but no shapes; this writes the plan itself, so there is something
-  # in the run you can open in CAD and draw over.
+  # The IFC above carries the spatial hierarchy AND geometry now (ADR-0016 —
+  # an extruded solid per space, wall and door). This writes the same plan as a
+  # 2D drawing, on AIA layers, so the run produces both something to open in a
+  # BIM viewer and something to draw over in CAD.
   - id: n_p2f6dy
     type: aec.export_dxf
     version: 1

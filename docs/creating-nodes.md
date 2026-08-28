@@ -29,10 +29,12 @@ executing your node*. The **execute** function receives only what `ctx` gives
 it: there is no ambient `fs`, no bare network, no provider SDKs. That single
 property is what makes the plugin boundary and the testkit work.
 
-Both halves live in one file under `packages/nodes-core/src/`. (When the plugin
-host lands — §8 of the architecture — a third-party plugin will export this
-exact `NodeModule` shape from its own package, so nothing you learn here is
-throwaway.)
+Both halves live in one file under `packages/nodes-core/src/`. The plugin host
+(§8) has landed, and a third-party plugin exports this exact `NodeModule` shape
+from its own package — `plugins/aec-review/` is a first-party one doing precisely
+that, out of process, across the consent boundary. Nothing you learn here is
+throwaway, and if your node belongs in a plugin rather than in the core set,
+everything below still applies except §6.
 
 ## 2. Decide the node's shape before writing code
 
@@ -139,8 +141,9 @@ which today renders:
 | `type: 'string'` + `'x-archspace': { widget: 'textarea', rows: 4 }` | textarea |
 
 Anything else renders as "unsupported" — so if you need an array or a nested
-object param today, model it as scalars. (`aec.filter_findings` does exactly
-this: three booleans instead of an array of severities.)
+object param today, model it as scalars. (`aec.review.filter_findings`, in
+`plugins/aec-review/src/filter-findings.ts`, does exactly this: booleans instead
+of an array of severities.)
 
 **`inputs` / `outputs`** — `PortDecl`s. The `type` is a port-type expression
 from [§6](ARCHITECTURE.md): `text`, `number`, `boolean`, `json`, `chat`,
@@ -282,12 +285,13 @@ pnpm --filter @archspace/nodes-core typecheck
 ## 6. Register it
 
 Add it to [`src/index.ts`](../packages/nodes-core/src/index.ts) — export it, and
-list it in `CORE_NODES`:
+list it in `AEC_NODES` (or `AI_NODES` for an `ai.*` node; `registerCoreNodes`
+walks both):
 
 ```ts
 export { parkingEstimateNode, type ParkingEstimateParams } from './parking-estimate.js';
 
-const CORE_NODES: readonly NodeModule<unknown>[] = [
+const AEC_NODES: readonly NodeModule<unknown>[] = [
   // …
   parkingEstimateNode,
 ];
@@ -307,7 +311,7 @@ pnpm dev    # the node appears in the library under its category
 Drag it onto the canvas, wire the brief into it, and hit Run (⌘R). Or headless:
 
 ```sh
-pnpm cli run packages/app/resources/example.archspace.yaml
+pnpm cli run packages/app/resources/concept-compliance.archspace.yaml
 ```
 
 The CLI prints the same event stream the UI folds into node statuses — it is

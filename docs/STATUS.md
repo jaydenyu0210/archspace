@@ -47,7 +47,7 @@ documents, which is a seam masquerading as a feature.
 
 | Area | Status |
 |---|---|
-| Workflow document (parse / patch / emit, comment survival, migrations, lint) | **Real**, property-tested |
+| Workflow document (parse / patch / emit, comment survival) | **Real**, property-tested. Six properties over generated documents: round-trip, canonical stability, text hygiene, byte-identical no-op save, and two mutating-save shapes. **Migrations and document lint are not built** — `archspace: 2` is a hard parse failure with no upgrade path, and the M1 gate's "migrations, lint" is unbuilt scope, not shipped scope. Nothing needs them yet, because the format has never changed; the day it does, the framework is the first cost |
 | Port type system, node contract + testkit | **Real** |
 | Execution engine (lanes, memoization, cancel, retry, partial failure, events) | **Real**, deterministic-mode tested |
 | CLI (`run`, `nodes`, `plugins`, `mcp`, `ai`, `doctor`) | **Real** |
@@ -109,7 +109,7 @@ packages/
   node-sdk/       public node contract: manifest, module, context, testkit (§5  / ADR-0005)
   document/       canonical comment-preserving YAML, CST patch-on-save     (§4  / ADR-0004)
   engine/         demand-driven memoized DAG: lanes, cancel, event stream  (§7  / ADR-0007)
-  nodes-core/     18 built-in nodes: 14 aec.* (6 are backend mocks) + 4 ai.* (real)
+  nodes-core/     19 built-in nodes: 15 aec.* (6 are backend mocks) + 4 ai.* (real)
   ai-gateway/     provider abstraction: named model profiles over ctx.ai   (§10 / ADR-0010)
   mcp-host/       MCP client pool, OAuth 2.1, tools → generated nodes      (§9  / ADR-0009)
   plugin-host/    out-of-process plugin loader: consent, supervision, RPC  (§8  / ADR-0008)

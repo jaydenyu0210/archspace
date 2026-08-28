@@ -13,7 +13,7 @@ vulnerabilities get reported to the right place.
 
 Use GitHub private vulnerability reporting:
 
-**https://github.com/archspace/archspace/security/advisories/new**
+**https://github.com/jaydenyu0210/archspace/security/advisories/new**
 
 Reports there stay private to the maintainers until an advisory is published. If you cannot use it — for example, you do not have a
 GitHub account — say so in a Discussion **without any detail about the issue**
@@ -58,9 +58,18 @@ against good-faith research that follows this policy.
 
 Archspace is pre-1.0. **Only the latest release and `main` are supported.**
 Fixes land on `main` and ship in the next release; there are no backports to
-earlier 0.x releases. Releases are distributed through GitHub Releases, signed
-with a Developer ID certificate and notarized by Apple (ADR-0012) — a build that Gatekeeper rejects did not come from us, and that
-itself is worth reporting.
+earlier 0.x releases. Releases are distributed through GitHub Releases.
+
+**No release has been published yet, and nothing has ever been signed.**
+ADR-0012 requires a Developer ID certificate and Apple notarization, and
+`release.yml` fails rather than publishing without them — but until that first
+tag, every build of this project is one you made yourself from source. So the
+usual advice inverts: *today* Gatekeeper rejects a build precisely because it
+came from us, and "it was signed" tells you nothing, because nothing is. When
+the first signed release ships, this paragraph is the one to rewrite; until
+then, treating a signature as evidence of provenance would be advice that gets
+someone hurt. [docs/releasing.md](docs/releasing.md) §8 records exactly what
+has and has not been observed.
 
 ## Scope
 

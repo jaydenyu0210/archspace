@@ -85,7 +85,7 @@ source.
 ## Your first five minutes
 
 1. **Open it.** Archspace starts with an example already loaded —
-   *Concept compliance check*, six connected nodes.
+   *Concept compliance check*, seven connected nodes.
 2. **Press ▶ Run.** It will refuse. One node comes from a plugin that ships with
    the app but has not been enabled yet — and it tells you exactly that, and
    where to fix it.

@@ -105,8 +105,8 @@ pnpm lint                                          # 1
 pnpm typecheck                                     # 2
 pnpm --filter @archspace/plugin-aec-review build   # 3
 pnpm test                                          # 4
-pnpm cli run packages/app/resources/concept-compliance.archspace.yaml \
-  --trust-plugin aec-review                        # 5
+for w in packages/app/resources/*.archspace.yaml; do \
+  pnpm cli run "$w" --trust-plugin aec-review; done # 5
 pnpm build                                         # 6
 ```
 
@@ -193,8 +193,9 @@ Consequences worth internalising:
   that silently never gets tested.
 - If `pnpm test` reds in a package you did not touch with that exact message,
   that package has no tests yet. That is the finding, not your change — the
-  README's **Known gaps in the repo itself** section tracks which packages are
-  currently in that state.
+  **Known gaps in the repo itself** section of
+  [docs/STATUS.md](docs/STATUS.md) explains the trap. No package is in that
+  state today; every one of the twelve has a suite.
 - `pnpm typecheck` (`pnpm -r run typecheck`) aborts the same way, so it
   **under-reports**. When you are unpicking a wide breakage, typecheck packages
   individually to see the whole picture:

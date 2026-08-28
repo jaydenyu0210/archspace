@@ -4,8 +4,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Question, idea, or "is this supposed to work?"
-    url: https://github.com/archspace/archspace/discussions
+    url: https://github.com/jaydenyu0210/archspace/discussions
     about: Anything that is not yet a reproducible defect or a concrete proposal.
   - name: Security vulnerability
-    url: https://github.com/archspace/archspace/security/advisories/new
+    url: https://github.com/jaydenyu0210/archspace/security/advisories/new
     about: Report privately. Do not open a public issue — see SECURITY.md.

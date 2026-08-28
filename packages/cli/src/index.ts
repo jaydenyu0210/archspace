@@ -15,6 +15,8 @@
  * §10), so the diagnosis has to be local and specific.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { join, resolve as resolvePath } from 'node:path';
 import { parseWorkflow } from '@archspace/document';
 import { startRun, validateGraph, type EngineGraph, type RunEvent } from '@archspace/engine';
@@ -40,8 +42,23 @@ function options(name: string): string[] {
   return out;
 }
 
-function usage(): never {
-  console.error(
+/**
+ * This package's own version, read from its `package.json` rather than baked in
+ * by a build step — the CLI runs from source under `tsx` as often as it runs
+ * bundled, and a constant here is a second place for the number to live and a
+ * first place for it to be wrong.
+ */
+function cliVersion(): string {
+  const pkgUrl = new URL('../package.json', import.meta.url);
+  const pkg: unknown = JSON.parse(readFileSync(fileURLToPath(pkgUrl), 'utf8'));
+  const version = (pkg as { version?: unknown }).version;
+  return typeof version === 'string' ? version : '0.0.0-unknown';
+}
+
+/** Exit 2 when we are correcting the caller, 0 when they asked. */
+function usage(code = 2): never {
+  const write = code === 0 ? console.log : console.error;
+  write(
     [
       'usage:',
       '  archspace run <workflow.archspace.yaml> [--target <nodeId>] [--out <dir>]',
@@ -50,6 +67,7 @@ function usage(): never {
       '  archspace mcp [--connect <name>]',
       '  archspace ai [--probe <profile>]',
       '  archspace doctor [<workflow.archspace.yaml>]',
+      '  archspace --version',
       '',
       'run flags:',
       '  --out <dir>             write every file the run produces into <dir>',
@@ -63,7 +81,7 @@ function usage(): never {
       '  --verbose               include debug/info logs from the MCP and plugin hosts',
     ].join('\n'),
   );
-  process.exit(2);
+  process.exit(code);
 }
 
 async function runtime(): Promise<Runtime> {
@@ -480,6 +498,23 @@ async function cmdDoctor(file: string | undefined): Promise<number> {
 async function main(): Promise<void> {
   let code: number;
   switch (command) {
+    case '--version':
+    case '-v':
+    case 'version':
+      // ARCHITECTURE §16's M0 gate is "`archspace --version` runs from a fresh
+      // checkout", and it did not: the flag fell through to `usage()` and
+      // exited 2. A gate a milestone was declared against has to be executable,
+      // so this is the command being made real rather than the gate being
+      // edited to match. It takes no runtime — a version that needed the MCP
+      // and plugin hosts up would be a poor answer to "is this thing installed".
+      console.log(cliVersion());
+      code = 0;
+      break;
+    case '--help':
+    case '-h':
+    case 'help':
+      usage(0);
+      break;
     case 'run':
       if (argv[1] === undefined || argv[1].startsWith('--')) usage();
       code = await cmdRun(argv[1]);

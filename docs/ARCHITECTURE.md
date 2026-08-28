@@ -89,15 +89,19 @@ The **3D preview panel** (IFC) is an app panel — not a node UI — built on th
 
 ```
 packages/
-  document/     # workflow schema, YAML CST parser/patcher, migrations, lint
+  document/     # workflow schema, YAML CST parser/patcher
   types/        # port type system: grammar, assignability, coercions
   node-sdk/     # public contract: NodeManifest, NodeModule, NodeContext, testkit
   engine/       # scheduler, cache, run events, process supervision
-  nodes-core/   # built-in nodes (core.*, ai.*)
+  nodes-core/   # built-in nodes (aec.*, ai.*)
   ai-gateway/   # provider abstraction
   mcp-host/     # MCP client pool, tool→node generation
+  plugin-host/  # out-of-process plugin loader: consent, supervision, RPC
+  autodesk/     # Revit/APS capability table, MCP presets, unimplemented seams
   cli/          # `archspace run` headless runner
   app/          # Electron main + renderer
+plugins/
+  aec-review/   # first-party plugin: the aec.review.* nodes, out of process
 plugins/
   ifc/          # first-party plugin — dogfoods the plugin boundary
 docs/           # this file, adr/, research/
@@ -536,6 +540,7 @@ Monorepo (pnpm), packages scaffolded with dependency rules enforced (no Electron
 **M1 — Document & contract.**
 `document` (YAML CST parse/patch/emit, canonical rules, migrations, lint), `types` (grammar, assignability, coercions), `node-sdk` (the §5 contract + testkit), `nodes-core` starter set (const, template, file read/write, csv→table, gate, inspect), registry with placeholder-node behavior.
 *Gate:* property suites green (round-trip, canonical stability, comment survival); a hand-written workflow file validates and its `requires:` block regenerates byte-identically.
+*Shipped short of scope:* **migrations and document lint are not built.** The gate above never asked for them — it names the three property suites and the `requires:` derivation, all of which are green — so M1 passed on what it measured while two items in its scope line went unbuilt. `archspace: 2` is a hard parse failure today with no upgrade path. That is survivable only because the format has never changed, and it is the first thing to build on the day it does. Recorded here rather than deleted from the scope line, because a milestone that quietly narrows to fit what happened is a milestone that measures nothing.
 
 **M2 — Execution engine.**
 Scheduler with lanes, memoization (memory + persistent CAS/SQLite), cancellation, retry policy, partial-failure semantics, event stream, run manifests, CLI runner executing real workflows headless.
