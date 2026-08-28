@@ -316,7 +316,18 @@ export function saveWorkflow(
       }
       for (const id of additions) {
         const t = target.get(id) as { x: number; y: number };
-        lay.items.push(new Pair(ydoc.createNode(id), makePositionMap(ydoc, t)));
+        // "Addition" means absent from `base.layout`, which is NOT the same as
+        // absent from the CST. `extractWorkflow` reports a malformed layout
+        // entry and leaves it in place on purpose (extract.ts:235) — so a
+        // hand-edited `n_x: not-a-map`, or one a merge mangled, is missing from
+        // the parsed layout while its pair is still in the file. Pushing then
+        // wrote the key a SECOND time, and a YAML map may not repeat a key: the
+        // very next ordinary save produced a document that could not be
+        // reopened. Not a cosmetic duplicate — the user's workflow was gone,
+        // and the app had done it while saving normally.
+        const existing = findPair(lay, id);
+        if (existing !== undefined) existing.value = makePositionMap(ydoc, t);
+        else lay.items.push(new Pair(ydoc.createNode(id), makePositionMap(ydoc, t)));
         touch();
       }
     }

@@ -225,3 +225,69 @@ describe('saveWorkflow — patch semantics', () => {
     expect(() => saveWorkflow(r.source, doc)).toThrow(/duplicate node id/);
   });
 });
+
+/**
+ * The save that destroyed the document.
+ *
+ * `extractWorkflow` reports a malformed `layout:` entry and deliberately leaves
+ * it in the CST (extract.ts:235) — the parse is a warning, not a failure, so a
+ * hand-edited or merge-mangled position never blocks opening a workflow. But
+ * `saveWorkflow` decided what to append by diffing against the *parsed* layout,
+ * where the entry is absent, so it wrote the key a second time. A YAML map may
+ * not repeat a key, so the file the app had just saved could not be reopened.
+ *
+ * Worth stating plainly because the severity is not obvious from the symptom:
+ * this is not a cosmetic duplicate. Open a workflow whose layout someone had
+ * hand-edited, move a node, save — and the workflow is gone, destroyed by the
+ * app on a path the user had every reason to trust.
+ */
+describe('a layout entry the parse rejected but left in place', () => {
+  const withBadLayout = (position: string): string => `archspace: 1
+kind: workflow
+meta:
+  name: Bad layout
+requires:
+  mcp: []
+  ai: []
+  plugins: []
+nodes:
+  - id: n_aaa111
+    type: aec.project_brief
+    version: 1
+    config: {}
+edges: []
+layout:
+  n_aaa111: ${position}
+`;
+
+  it('is replaced on save, not appended beside — and the file reopens', () => {
+    const parsed = parseWorkflow(withBadLayout('hand-edited to something that is not a map'));
+    if (!parsed.ok) throw new Error('the malformed entry must be a warning, not a parse failure');
+    // The premise: reported, excluded, and still in the file.
+    expect(parsed.issues.map((i) => i.severity)).toContain('warning');
+    expect(parsed.doc.layout).toEqual({});
+
+    const moved: WorkflowDoc = { ...parsed.doc, layout: { n_aaa111: { x: 120, y: 240 } } };
+    const saved = saveWorkflow(parsed.source, moved);
+
+    expect(saved.match(/n_aaa111:/g) ?? []).toHaveLength(1);
+    expect(saved).toContain('n_aaa111: { x: 120, y: 240 }');
+
+    const reparsed = parseWorkflow(saved);
+    expect(reparsed.ok, JSON.stringify(reparsed.issues)).toBe(true);
+    if (reparsed.ok) expect(reparsed.doc.layout).toEqual({ n_aaa111: { x: 120, y: 240 } });
+  });
+
+  it('does the same for an entry whose x and y are not numbers', () => {
+    // The other way extraction rejects a position: a map, but not of numbers.
+    const parsed = parseWorkflow(withBadLayout('{ x: left, y: top }'));
+    if (!parsed.ok) throw new Error('expected a warning, not a parse failure');
+    expect(parsed.doc.layout).toEqual({});
+
+    const saved = saveWorkflow(parsed.source, { ...parsed.doc, layout: { n_aaa111: { x: 7, y: 9 } } });
+    expect(saved.match(/n_aaa111:/g) ?? []).toHaveLength(1);
+    const reparsed = parseWorkflow(saved);
+    expect(reparsed.ok, JSON.stringify(reparsed.issues)).toBe(true);
+    if (reparsed.ok) expect(reparsed.doc.layout).toEqual({ n_aaa111: { x: 7, y: 9 } });
+  });
+});
