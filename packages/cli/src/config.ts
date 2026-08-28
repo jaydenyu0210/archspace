@@ -18,6 +18,7 @@
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { join, resolve } from 'node:path';
 import {
   AI_CONFIG_FILENAME,
@@ -158,9 +159,18 @@ export const cliStrictSecrets = {
 /**
  * Where bundled first-party plugins live when running from the workspace.
  * Resolved from this file's own location so it works from any cwd.
+ *
+ * `fileURLToPath`, never `new URL(...).pathname`. A URL's pathname is
+ * percent-encoded and not a filesystem path: a checkout under
+ * `~/My Projects/archspace` yields `.../My%20Projects/...`, which `existsSync`
+ * answers `false` for, so the bundled plugin silently vanishes and every
+ * workflow using it reports an unmet requirement instead of a broken path. On
+ * Windows it is worse than encoding — `file:///C:/x` has the pathname `/C:/x`,
+ * which is not a path at all. ADR-0014 ships Windows, so this was not
+ * hypothetical.
  */
 export function workspacePluginsDir(fromUrl: string): string | null {
   // packages/cli/src/config.ts → repo root → plugins/
-  const dir = resolve(new URL('.', fromUrl).pathname, '..', '..', '..', 'plugins');
+  const dir = resolve(fileURLToPath(new URL('.', fromUrl)), '..', '..', '..', 'plugins');
   return existsSync(dir) ? dir : null;
 }

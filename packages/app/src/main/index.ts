@@ -374,6 +374,21 @@ function createWindow(): void {
     win = null;
   });
 
+  // The window renders one document and never navigates. Saying so here is the
+  // backstop for every way a navigation can be started that is not a link the
+  // renderer chose to follow — a file dropped on the canvas is the one that
+  // actually happened, and it replaced the whole UI with a `file://` listing
+  // that only quitting could undo. The renderer refuses the drop as well
+  // (Canvas.tsx); this is the guarantee that does not depend on every future
+  // drop target remembering to.
+  win.webContents.on('will-navigate', (event) => event.preventDefault());
+  win.webContents.on('will-frame-navigate', (event) => event.preventDefault());
+  // An MCP server names its own OAuth URL and a node's output can be any text,
+  // so `window.open` is never the right way out of this app. Anything genuinely
+  // external goes through `shell.openExternal` on the main side, where it is
+  // scheme-checked first.
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
   if (isDev) {
     void win.loadURL(process.env['ELECTRON_RENDERER_URL'] as string);
   } else {

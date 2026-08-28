@@ -54,9 +54,16 @@ export function Canvas() {
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
+      // Unconditionally, and before the early return. `onDragOver` below calls
+      // `preventDefault` for every drag so the palette can drop here, which
+      // makes this element a drop target for *everything* — and a drop the
+      // handler declines still runs the browser default, which for a file is
+      // to navigate to it. The window then showed a `file://` page where the
+      // app had been, with no way back short of quitting. Declining a drop and
+      // permitting its default are two different things.
+      e.preventDefault();
       const typeId = e.dataTransfer.getData('application/archspace-node');
       if (!typeId) return;
-      e.preventDefault();
       addNode(typeId, flow.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
     },
     [addNode, flow],

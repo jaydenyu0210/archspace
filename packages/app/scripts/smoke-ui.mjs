@@ -482,6 +482,52 @@ if (!head.startsWith('  0\r\nSECTION')) {
   fail(`the saved file is not the DXF the selected node produced; it starts: ${JSON.stringify(head.slice(0, 40))}`);
 }
 
+// A file dropped on the canvas must not take the window with it.
+//
+// `onDragOver` calls `preventDefault` for every drag so the palette can drop
+// here, which makes the canvas a drop target for *everything* — and a drop the
+// handler declines still runs the browser default, which for a file is to
+// navigate to it. The app was then a `file://` listing with no way back short
+// of quitting, and nothing in CI launches Electron to notice.
+//
+// Two assertions, because they cover different halves. The first is the
+// renderer's: a synthetic drop is untrusted and performs no default action, so
+// what is checked is the mechanism — `dispatchEvent` returns false only if the
+// handler cancelled it, and the handler must cancel a drop it does not want.
+// The second is the main process's backstop, and it is a real navigation: a
+// `will-navigate` that did not fire would leave `location.href` somewhere else.
+const drop = await evaluate(ws, 910, `JSON.stringify((() => {
+  // The pane, not '.canvas-wrap': onDrop is on the ReactFlow element, which is
+  // a CHILD of the wrapper, so an event dispatched on the wrapper bubbles the
+  // wrong way and never reaches the handler under test.
+  const target = document.querySelector('.react-flow__pane') ?? document.querySelector('.react-flow');
+  if (!target) return { error: 'no react-flow pane' };
+  const dt = new DataTransfer();
+  dt.items.add(new File(['x'], 'dropped.txt', { type: 'text/plain' }));
+  const over = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt });
+  const dropped = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt });
+  return {
+    overCancelled: !target.dispatchEvent(over),
+    dropCancelled: !target.dispatchEvent(dropped),
+    nodes: document.querySelectorAll('.react-flow__node').length,
+  };
+})())`);
+if (drop?.error) fail(`could not reach the canvas to test the drop: ${drop.error}`);
+if (!drop.dropCancelled) {
+  fail('the canvas let a dropped file keep its default action \u2014 in a real drop that navigates the window away from the app');
+}
+if (drop.nodes !== ui.canvasNodes) {
+  fail(`dropping a file changed the graph (${ui.canvasNodes} -> ${drop.nodes} nodes)`);
+}
+
+const hrefBefore = await evaluate(ws, 911, 'JSON.stringify(location.href)');
+await evaluate(ws, 912, `(() => { location.href = 'https://example.com/'; return '"asked"'; })()`);
+await new Promise((r) => setTimeout(r, 700));
+const hrefAfter = await evaluate(ws, 913, 'JSON.stringify(location.href)');
+if (hrefAfter !== hrefBefore) {
+  fail(`the window navigated away: ${hrefBefore} -> ${hrefAfter} \u2014 main's will-navigate guard did not hold`);
+}
+
 mainWs.close();
 
 ws.close();
@@ -512,5 +558,6 @@ console.log(
     `       ${(run.final ?? '').trim()}\n` +
     `       floor plan drew — ${plan.rooms} rooms, ${plan.walls} walls, ${plan.labels} labels\n` +
     `       storey switcher — ${storeys.buttons} storeys, switching to 4 redrew the plan; panel resized ${beforeDrag} -> ${afterDrag.preview}px\n` +
-    `       saved through the UI — clicked Save on the DXF exporter, ${savedBytes.byteLength} bytes of valid R12 landed on disk`,
+    `       saved through the UI — clicked Save on the DXF exporter, ${savedBytes.byteLength} bytes of valid R12 landed on disk\n` +
+    `       refused to navigate \u2014 a dropped file was cancelled and a scripted location change did not leave ${hrefBefore}`,
 );
