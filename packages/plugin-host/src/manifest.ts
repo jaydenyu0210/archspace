@@ -106,7 +106,11 @@ export function parsePluginManifest(
   if (entry !== null && !isContainedRelativePath(entry)) {
     error('entry', `"entry" must be a relative path inside the plugin directory, got "${entry}"`);
   } else if (entry !== null && opts.dir !== undefined && !existsSync(resolve(opts.dir, entry))) {
-    error('entry', `entry "${entry}" does not exist — the plugin has not been built`);
+    error(
+      'entry',
+      `entry "${entry}" does not exist — the plugin has not been built. `
+        + `Run its build step in ${opts.dir}, then reload plugins.`,
+    );
   }
 
   const engineApiRaw = json.engineApi;

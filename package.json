@@ -9,7 +9,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --filter @archspace/app dev",
+    "dev": "pnpm --filter @archspace/plugin-aec-review build && pnpm --filter @archspace/app dev",
     "build": "pnpm --filter @archspace/plugin-aec-review build && pnpm --filter @archspace/app build",
     "dist": "pnpm --filter @archspace/plugin-aec-review build && pnpm --filter @archspace/app dist",
     "dist:win": "pnpm --filter @archspace/plugin-aec-review build && pnpm --filter @archspace/app dist:win",

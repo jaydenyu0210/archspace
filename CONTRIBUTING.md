@@ -126,6 +126,11 @@ electron-vite externalises workspace dependencies by default, which once
 produced an app that passed every other command here and then would not launch
 at all.
 
+`pnpm dev` builds it too, for the same reason: without `dist/index.js` the
+plugin host reports it as **failed to load**, the Plugins panel offers no
+*Grant consent & enable* button, and the bundled example cannot run — which
+looks like a broken consent UI rather than a missing build step.
+
 ### Why the plugin build comes before the tests
 
 The first-party plugin is not a fixture. Per
