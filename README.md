@@ -23,11 +23,31 @@ graph, under version control.
 ### Windows
 
 **[Download the installer](https://github.com/jaydenyu0210/archspace/releases/latest)**
-— works on both Intel/AMD and ARM PCs.
+— works on both Intel/AMD and ARM PCs. It does not need administrator rights.
 
-Windows will show a blue **"Windows protected your PC"** box, because this build
-is not code-signed. Click **More info → Run anyway**. The installer does not
-need administrator rights.
+This build is **not code-signed**, so Windows will object. Which box you get
+matters, because only one of them has a way through:
+
+| What you see | What to do |
+|---|---|
+| **"Windows protected your PC"** (blue box, SmartScreen) | **More info → Run anyway.** Expected, and the normal case. |
+| **"Smart App Control blocked an app that may be unsafe"** | There is no "run anyway". See below. |
+
+**If Smart App Control blocked it**, no click gets you past it. Smart App
+Control is a Windows 11 feature that refuses apps it cannot attribute to a known
+publisher, and unlike SmartScreen it offers no override — signing is the only
+thing that satisfies it, and this build is not signed. Your options:
+
+1. **Run it from source instead** (recommended — see
+   [For developers](#for-developers)). You launch Electron's own signed binary,
+   so Smart App Control has no reason to intervene. You get the same app.
+2. **Turn Smart App Control off** — Windows Security → *App & browser control* →
+   *Smart App Control settings* → *Off*. Know the cost first: **this cannot be
+   undone without reinstalling Windows**, and it lowers protection for every app
+   on the machine, not just this one. Do not do it casually to try an alpha.
+3. **Wait for a signed build.** Tracked in
+   [ADR-0014](docs/adr/0014-windows-packaging.md); it needs a code-signing
+   certificate this project does not have yet.
 
 *Nobody has run this on Windows yet.* It builds and every file is verifiably in
 the right place, but you may be the first person to launch it. Please
@@ -173,10 +193,16 @@ Needs [Node](https://nodejs.org) (version in `.nvmrc`) and
 [pnpm](https://pnpm.io).
 
 ```sh
+git clone https://github.com/jaydenyu0210/archspace.git
+cd archspace
 pnpm install
 pnpm dev      # run the app
 pnpm test     # 1104 tests across 12 packages
 ```
+
+This is also the way to run it on a Windows machine with Smart App Control on:
+`pnpm dev` launches Electron's own signed binary rather than an unsigned
+installer, so nothing is blocked. The app is identical.
 
 Run a workflow with no UI — a real feature, not a test harness:
 
