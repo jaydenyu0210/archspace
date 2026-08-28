@@ -251,10 +251,39 @@ export function startRun(graph: EngineGraph, opts: RunOptions): RunHandle {
   const events: RunEvent[] = [];
   const subscribers = new Set<(e: RunEvent) => void>();
   let seq = 0;
+  /**
+   * A subscriber's fault is never the run's fault.
+   *
+   * Both real subscribers can throw for reasons that have nothing to do with
+   * the graph: the engine child posts each event to a MessagePort that is gone
+   * the moment the window closes, and the CLI writes to a stdout that raises
+   * EPIPE the moment it is piped into something that stops reading. Neither
+   * had any business changing what the run reports.
+   *
+   * Unguarded, they did. `emit` is called from inside the attempt loop's
+   * `try`, so a throwing subscriber was caught by the node's own handler and
+   * the node was reported FAILED — a succeeded node re-labelled a failure
+   * because a window closed. Around `run:finished` and the settle path there
+   * is no such catch, so the same throw would have left `done` unsettled.
+   *
+   * Swallowed rather than reported, because there is nowhere honest to report
+   * it to: the only channel out of here is the one that just failed. The
+   * subscriber is kept — a closed port and a full pipe are both transient in
+   * principle, and dropping it would silently downgrade the stream for a
+   * consumer that might recover.
+   */
+  function deliver(cb: (e: RunEvent) => void, event: RunEvent): void {
+    try {
+      cb(event);
+    } catch {
+      /* the subscriber's problem, not the run's */
+    }
+  }
+
   function emit(body: RunEventBody): void {
     const event = { v: 1, seq: seq++, at: hooks.now(), ...body } as RunEvent;
     events.push(event);
-    for (const cb of [...subscribers]) cb(event);
+    for (const cb of [...subscribers]) deliver(cb, event);
   }
 
   // Node state.
@@ -677,7 +706,11 @@ export function startRun(graph: EngineGraph, opts: RunOptions): RunHandle {
   return {
     runId,
     onEvent(cb) {
-      for (const event of events.slice()) cb(event); // late subscribers replay first
+      // Replayed through `deliver` for the same reason live events are: a run
+      // is always already started by the time anyone can subscribe, so EVERY
+      // subscriber takes the replay path, and an unguarded throw here came
+      // straight back out of `onEvent` at the caller.
+      for (const event of events.slice()) deliver(cb, event); // late subscribers replay first
       subscribers.add(cb);
       return () => {
         subscribers.delete(cb);
