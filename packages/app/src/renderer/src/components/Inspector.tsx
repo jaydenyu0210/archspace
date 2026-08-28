@@ -12,6 +12,7 @@
  * entries verbatim (ADR-0004), and a user opening a colleague's workflow needs
  * to know that missing a plugin has not silently eaten their data.
  */
+import { isPromotableName, isPromotableSchema } from '@archspace/node-sdk/promotion';
 import { driftedNodeIds } from '../drift';
 import { useStore } from '../store';
 import { ParamField } from './ParamField';
@@ -29,6 +30,8 @@ export function Inspector() {
   const nodes = useStore((s) => s.nodes);
   const manifestByType = useStore((s) => s.manifestByType);
   const updateParam = useStore((s) => s.updateParam);
+  const setPromoted = useStore((s) => s.setPromoted);
+  const edges = useStore((s) => s.edges);
   const meta = useStore((s) => s.meta);
   const setMeta = useStore((s) => s.setMeta);
   const docIssues = useStore((s) => s.docIssues);
@@ -69,8 +72,31 @@ export function Inspector() {
                 schema={prop}
                 value={node.data.config[key]}
                 onChange={(value) => updateParam(node.id, key, value)}
+                {...(isPromotableSchema(prop) &&
+                isPromotableName(key) &&
+                !manifest.inputs.some((p) => p.id === key)
+                  ? {
+                      promotion: {
+                        promoted: node.data.promoted?.includes(key) ?? false,
+                        wired: edges.some((e) => e.target === node.id && e.targetHandle === key),
+                        onToggle: (promoted: boolean) => setPromoted(node.id, key, promoted),
+                      },
+                    }
+                  : {})}
               />
             ))}
+            {/* CONTRIBUTING's honesty rule: a panel with no promote buttons
+                anywhere reads as a broken feature rather than an absent one, so
+                say which it is. */}
+            {Object.keys(manifest.params.properties ?? {}).length > 0 &&
+              !Object.entries(manifest.params.properties ?? {}).some(
+                ([key, prop]) => isPromotableSchema(prop) && isPromotableName(key),
+              ) && (
+                <div className="panel-hint">
+                  None of this node&rsquo;s parameters can be exposed as an input port &mdash; its author has not
+                  marked any promotable.
+                </div>
+              )}
             {Object.keys(manifest.params.properties ?? {}).length === 0 && (
               <div className="panel-hint">This node has no parameters.</div>
             )}

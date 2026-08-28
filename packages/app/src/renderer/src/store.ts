@@ -23,6 +23,7 @@ import {
 } from '@xyflow/react';
 import { assignable } from '@archspace/types';
 import type { NodeManifest } from '@archspace/node-sdk';
+import { resolvePromotions } from '@archspace/node-sdk/promotion';
 import type { ProfileStatus } from '@archspace/ai-gateway';
 import type { McpServerStatus } from '@archspace/mcp-host';
 import type { InstalledPluginInfo } from '@archspace/plugin-host';
@@ -173,6 +174,9 @@ export interface StoreState {
   copySelection(): void;
   paste(): void;
   updateParam(nodeId: string, key: string, value: unknown): void;
+  /** Expose a promotable param as an input port, or take it back (ADR-0017).
+   *  Demoting deletes any edge into that port — see the implementation. */
+  setPromoted(nodeId: string, key: string, promoted: boolean): void;
   setMeta(meta: Partial<Snapshot['meta']>): void;
 
   loadDoc(path: string | null, doc: WorkflowDoc, issues: DocIssue[]): void;
@@ -322,7 +326,13 @@ export const useStore = create<StoreState>((set, get) => ({
       return;
     }
     const outPort = sourceManifest.outputs.find((p) => p.id === conn.sourceHandle);
-    const inPort = targetManifest.inputs.find((p) => p.id === conn.targetHandle);
+    // Effective inputs, so a promoted param is a legal target here exactly when
+    // it is a legal target in `validateGraph` (ADR-0017 decision 6). Two
+    // answers to "is this a port" is how the canvas comes to draw an edge the
+    // engine then refuses, or refuse one the engine would have run.
+    const inPort = resolvePromotions(targetManifest, targetNode.data.promoted).inputs.find(
+      (p) => p.id === conn.targetHandle,
+    );
     if (!outPort || !inPort) return;
 
     // One source of truth per non-variadic input (§6.2).
@@ -449,6 +459,31 @@ export const useStore = create<StoreState>((set, get) => ({
     set((st) => ({
       nodes: [...st.nodes.map((n) => ({ ...n, selected: false })), ...newNodes],
       edges: [...st.edges, ...newEdges],
+      dirty: true,
+    }));
+  },
+
+  setPromoted: (nodeId, key, promoted) => {
+    const node = get().nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    const already = node.data.promoted?.includes(key) ?? false;
+    if (already === promoted) return;
+    get().pushHistory(`promote:${nodeId}:${key}`);
+    const next = promoted
+      ? [...new Set([...(node.data.promoted ?? []), key])].sort()
+      : (node.data.promoted ?? []).filter((k) => k !== key);
+    set((s) => ({
+      nodes: s.nodes.map((n) =>
+        n.id === nodeId
+          ? { ...n, data: { ...n.data, ...(next.length > 0 ? { promoted: next } : { promoted: undefined }) } }
+          : n,
+      ),
+      // Demoting removes the port, and an edge into a port that no longer
+      // exists is a document the engine refuses to run — so the wire goes with
+      // it. Doing this silently would be worse than the refusal; the caller
+      // shows what happened. The configured value is untouched and takes over,
+      // which is the whole point of the fallback.
+      edges: promoted ? s.edges : s.edges.filter((e) => !(e.target === nodeId && e.targetHandle === key)),
       dirty: true,
     }));
   },

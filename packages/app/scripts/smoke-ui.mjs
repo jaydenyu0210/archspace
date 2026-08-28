@@ -482,6 +482,63 @@ if (!head.startsWith('  0\r\nSECTION')) {
   fail(`the saved file is not the DXF the selected node produced; it starts: ${JSON.stringify(head.slice(0, 40))}`);
 }
 
+// Param promotion, clicked (ADR-0017). The DXF exporter is still the selected
+// node, and `file_name` is one of the three first-party params opted in — so
+// the inspector must be offering a promote button, pressing it must add an
+// input port to the card, and pressing it again must take it away. Nothing in
+// CI launches Electron, so this is the only place the affordance is exercised
+// at all; the engine and CLI suites cover everything behind it.
+const promoteBefore = await evaluate(ws, 930, `JSON.stringify({
+  buttons: document.querySelectorAll('.promote-toggle').length,
+  inPorts: document.querySelectorAll('.react-flow__node.selected .ports-in .port-row').length,
+  promotedPorts: document.querySelectorAll('.react-flow__node.selected .port-row.port-promoted').length,
+})`);
+if ((promoteBefore?.buttons ?? 0) === 0) {
+  fail('the inspector offers no promote button on aec.export_dxf — file_name is marked promotable, so the affordance is missing');
+}
+if (promoteBefore.promotedPorts !== 0) fail(`the exporter already has ${promoteBefore.promotedPorts} promoted ports before anything was clicked`);
+
+await evaluate(ws, 931, `(() => {
+  const label = [...document.querySelectorAll('.inspector .field-label')]
+    .find(l => /file name/i.test(l.innerText));
+  const button = label?.querySelector('.promote-toggle');
+  if (!button) return '"no-button"';
+  button.click();
+  return '"ok"';
+})()`);
+await new Promise((r) => setTimeout(r, 500));
+
+const promoteAfter = await evaluate(ws, 932, `JSON.stringify({
+  inPorts: document.querySelectorAll('.react-flow__node.selected .ports-in .port-row').length,
+  promotedPorts: document.querySelectorAll('.react-flow__node.selected .port-row.port-promoted').length,
+  handles: document.querySelectorAll('.react-flow__node.selected .handle-promoted').length,
+  dirty: document.title.includes('•') || undefined,
+})`);
+if (promoteAfter.promotedPorts !== 1) {
+  fail(`promoting file_name drew ${promoteAfter.promotedPorts} promoted ports, expected 1`);
+}
+if (promoteAfter.inPorts !== promoteBefore.inPorts + 1) {
+  fail(`the card gained ${promoteAfter.inPorts - promoteBefore.inPorts} input ports, expected exactly 1`);
+}
+if (promoteAfter.handles !== 1) fail(`the promoted port drew ${promoteAfter.handles} connectable handles, expected 1`);
+
+// And back: demotion is the half that deletes state, so it is the half worth
+// checking twice.
+await evaluate(ws, 933, `(() => {
+  const label = [...document.querySelectorAll('.inspector .field-label')]
+    .find(l => /file name/i.test(l.innerText));
+  label?.querySelector('.promote-toggle')?.click();
+  return '"ok"';
+})()`);
+await new Promise((r) => setTimeout(r, 500));
+const demoted = await evaluate(ws, 934, `JSON.stringify({
+  inPorts: document.querySelectorAll('.react-flow__node.selected .ports-in .port-row').length,
+  promotedPorts: document.querySelectorAll('.react-flow__node.selected .port-row.port-promoted').length,
+})`);
+if (demoted.promotedPorts !== 0 || demoted.inPorts !== promoteBefore.inPorts) {
+  fail(`demoting left ${demoted.promotedPorts} promoted ports and ${demoted.inPorts} inputs (started at ${promoteBefore.inPorts})`);
+}
+
 // A file dropped on the canvas must not take the window with it.
 //
 // `onDragOver` calls `preventDefault` for every drag so the palette can drop
@@ -559,5 +616,6 @@ console.log(
     `       floor plan drew — ${plan.rooms} rooms, ${plan.walls} walls, ${plan.labels} labels\n` +
     `       storey switcher — ${storeys.buttons} storeys, switching to 4 redrew the plan; panel resized ${beforeDrag} -> ${afterDrag.preview}px\n` +
     `       saved through the UI — clicked Save on the DXF exporter, ${savedBytes.byteLength} bytes of valid R12 landed on disk\n` +
-    `       refused to navigate \u2014 a dropped file was cancelled and a scripted location change did not leave ${hrefBefore}`,
+    `       refused to navigate \u2014 a dropped file was cancelled and a scripted location change did not leave ${hrefBefore}\n` +
+    `       promotion clicked \u2014 ${promoteBefore.buttons} promotable param${promoteBefore.buttons === 1 ? '' : 's'} offered; promoting file_name took the exporter ${promoteBefore.inPorts} \u2192 ${promoteAfter.inPorts} input ports, demoting put it back`,
 );

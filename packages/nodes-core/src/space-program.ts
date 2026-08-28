@@ -64,18 +64,27 @@ export const spaceProgramNode: NodeModule<SpaceProgramParams> = {
     params: {
       type: 'object',
       properties: {
+        // Also promotable: the other number a study varies across runs.
         circulation_factor: {
           type: 'number',
           title: 'Circulation factor',
           default: 0.35,
           minimum: 0.15,
           maximum: 0.6,
+          'x-archspace': { promotable: true },
         },
         avg_area_per_person_m2: {
           type: 'number',
           title: 'Average area per person (m²)',
           default: 9.3,
           minimum: 2,
+          // Promotable (§5.1, ADR-0017). `aec.generate_room_schedule` declares
+          // the same param with the same 9.3 default, and the two must agree or
+          // the occupancy in the schedule contradicts the occupancy in the
+          // program. Today that agreement is two people typing the same number.
+          // Promoting it lets one value drive both from a single upstream node,
+          // which is precisely the composition §5.1 says promotion is for.
+          'x-archspace': { promotable: true },
         },
       },
     },

@@ -86,6 +86,10 @@ export const generateRoomScheduleNode: NodeModule<GenerateRoomScheduleParams> = 
           title: 'Average area per person (m²)',
           default: 9.3,
           minimum: 2,
+          // The far half of the pair `aec.space_program` documents: these two
+          // defaults have to stay equal, and promotion is how one value can
+          // drive both instead of two people remembering.
+          'x-archspace': { promotable: true },
           maximum: 100,
         },
         number_prefix: {

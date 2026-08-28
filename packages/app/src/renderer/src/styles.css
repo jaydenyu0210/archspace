@@ -366,6 +366,13 @@ body {
   border: 1.5px solid var(--bg0) !important;
   border-radius: 2px !important;   /* square pegs — drafting, not bubbles */
 }
+/* A promoted port is a port, drawn as one — but hollow, so the card shows at a
+   glance which sockets the node declared and which this instance chose. */
+.port-handle.handle-promoted {
+  border-color: var(--accent-dim) !important;
+  box-shadow: 0 0 0 1px var(--accent-dim);
+}
+.port-row.port-promoted .port-name { color: var(--ink-faint); font-style: italic; }
 .react-flow__handle-left { left: -5px !important; }
 .react-flow__handle-right { right: -5px !important; }
 
@@ -433,12 +440,43 @@ body {
 
 .field { margin-bottom: 12px; }
 .field-label {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 10.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-faint);
   margin-bottom: 4px;
+}
+
+/* Promotion (ADR-0017). The affordance is quiet until the param is promoted,
+   because on an MCP node EVERY argument offers it and a row of bright buttons
+   would read as the point of the panel rather than an option on it. */
+.promote-toggle {
+  flex: none;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  cursor: pointer;
+}
+.promote-toggle:hover { color: var(--ink-dim); border-color: var(--line-strong); }
+.promote-toggle.on {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+.field-promoted { border-left: 2px solid var(--accent-dim); padding-left: 8px; margin-left: -10px; }
+.field-note {
+  font-size: 10.5px;
+  color: var(--accent);
+  margin-bottom: 4px;
+  line-height: 1.4;
 }
 .field-input {
   width: 100%;

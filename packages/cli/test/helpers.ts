@@ -220,6 +220,8 @@ export interface WorkflowNode {
   type: string;
   /** Node params, emitted as inline YAML. Omitted means `config: {}`. */
   config?: Record<string, string | number | boolean>;
+  /** Params this instance exposes as input ports (ADR-0017). */
+  promoted?: string[];
 }
 
 export interface WorkflowRequires {
@@ -254,7 +256,12 @@ export function workflowYaml(
     return `{ ${entries.map(([k, v]) => `${k}: ${typeof v === 'string' ? JSON.stringify(v) : String(v)}`).join(', ')} }`;
   };
   const nodeBlock = nodes
-    .map((n) => `  - id: ${n.id}\n    type: ${n.type}\n    version: 1\n    config: ${inline(n.config)}`)
+    .map(
+      (n) =>
+        `  - id: ${n.id}\n    type: ${n.type}\n    version: 1\n` +
+        (n.promoted !== undefined && n.promoted.length > 0 ? `    promoted: [${n.promoted.join(', ')}]\n` : '') +
+        `    config: ${inline(n.config)}`,
+    )
     .join('\n');
   const layoutBlock = nodes.map((n, i) => `  ${n.id}: { x: ${120 + i * 180}, y: 240 }`).join('\n');
   return [

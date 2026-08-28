@@ -175,6 +175,12 @@ export const exportDxfNode: NodeModule<ExportDxfParams> = {
           type: 'string',
           title: 'File name',
           default: 'plan.dxf',
+          // Promotable (§5.1, ADR-0017): naming an output from upstream data —
+          // the project name, a variant id, a date — is the most ordinary
+          // reason to want a param on a wire, and `archspace run --out` writes
+          // this name to disk, so a run that varies its inputs and not its
+          // filenames overwrites its own results.
+          'x-archspace': { promotable: true },
         },
         level: {
           type: 'string',

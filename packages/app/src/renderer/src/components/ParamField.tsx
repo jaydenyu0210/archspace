@@ -31,8 +31,12 @@ export function ParamField(props: {
   schema: JsonSchemaProperty;
   value: unknown;
   onChange(value: unknown): void;
+  /** Promotion state for this param, when the node supports it (ADR-0017).
+   *  Absent for a param that cannot be promoted at all, so the affordance is
+   *  never rendered next to a control that could not honour it. */
+  promotion?: { promoted: boolean; wired: boolean; onToggle(promoted: boolean): void };
 }) {
-  const { name, schema, value, onChange } = props;
+  const { name, schema, value, onChange, promotion } = props;
   const label = schema.title ?? name;
   const ui = schema['x-archspace'];
 
@@ -126,8 +130,33 @@ export function ParamField(props: {
   }
 
   return (
-    <div className="field">
-      <label className="field-label">{label}</label>
+    <div className={`field${promotion?.promoted === true ? ' field-promoted' : ''}`}>
+      <label className="field-label">
+        {label}
+        {promotion !== undefined && (
+          <button
+            type="button"
+            className={`promote-toggle${promotion.promoted ? ' on' : ''}`}
+            aria-pressed={promotion.promoted}
+            title={
+              promotion.promoted
+                ? promotion.wired
+                  ? 'Remove this input port. The wire into it is deleted and the value below takes over.'
+                  : 'Remove this input port. The value below is already what the node uses.'
+                : 'Expose this parameter as an input port, so another node can drive it. The value below stays as the fallback.'
+            }
+            onClick={() => promotion.onToggle(!promotion.promoted)}
+          >
+            {promotion.promoted ? 'wired input ×' : 'make an input'}
+          </button>
+        )}
+      </label>
+      {/* Shown, not disabled. §5.1 says the wire OVERRIDES the configured
+          value, which means the configured value still exists and is still the
+          fallback — greying it out would say it had been replaced. */}
+      {promotion?.promoted === true && promotion.wired && (
+        <div className="field-note">Driven by a connected node. This value is the fallback if the wire is removed.</div>
+      )}
       {control}
       {schema.description && <div className="field-desc">{schema.description}</div>}
     </div>

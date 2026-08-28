@@ -54,6 +54,7 @@ documents, which is a seam masquerading as a feature.
 | Electron shell: canvas, palette, JSON-Schema inspector, live run log, open/save | **Real** |
 | Floor plan preview — the plan drawn as 2D geometry in the run panel | **Real.** Rooms, walls at true thickness, doors, exits and rotated room labels, with a storey switcher, on a resizable panel. Same visual vocabulary as the DXF export on purpose, so the two disagreeing is visible. Replaces what the headline node used to show: the leading 6% of a 261,000-character JSON blob. Storeys are carried up to a geometry budget (~34 KB for the 6-storey example); when a taller building exceeds it the caption says how many of how many are shown |
 | Getting produced files out — **Save…** on any asset in the run panel, `archspace run --out <dir>` headless | **Real**, and covered end to end: the smoke test clicks Save in the packaged app and checks the bytes that land on disk. Bulk data never enters the renderer (§7.6) — it asks main to save an `AssetRef`, and main reads the bytes from the engine over its own channel |
+| Param promotion — a `promotable` param exposed as an input port ([ADR-0017](adr/0017-param-promotion.md)) | **Real.** Persisted as a sorted `promoted:` list on the node entry; one derivation of the effective port list shared by the validator, the runner, the canvas and the connection check; the wired value folded into `params` between the schema defaults and the cache key, so a wire-supplied value and the same form-supplied value are one memo rather than two. Three first-party params are opted in (`aec.export_dxf.file_name`, and `avg_area_per_person_m2` / `circulation_factor` on `aec.space_program`), plus **every** MCP tool argument, which mcp-host has always marked promotable. Not built: promoting a param whose schema is an `enum` or an `array` loses that fidelity — §9.3 maps them to `text` and `json` — and nothing validates a wired value against the param's schema, deliberately, because nothing validates a configured one either |
 | Plugin host: manifest, consent, one process per plugin, crash containment | **Real** |
 | MCP host: official SDK, stdio + Streamable HTTP, OAuth 2.1, tools → nodes | **Real** code; not yet exercised against a live Revit server |
 | AI gateway: profiles, Anthropic / Ollama / OpenAI-compatible / mock | **Real** — calls the provider your profile names |
@@ -93,10 +94,6 @@ inspector display.
 - **CI does not launch Electron**, which is how two launch-blocking bugs once
   shipped past a fully green run. `pnpm --filter @archspace/app smoke` closes
   part of that gap by hand; see [CONTRIBUTING](../CONTRIBUTING.md) §3a.
-- **Param promotion is specified but unbuilt.** ARCHITECTURE §5.1 and §9.3 say
-  a param marked `promotable` can be exposed as an input port, and MCP params
-  already carry the flag — but the document format has no field to persist the
-  choice, so this needs an ADR before it needs code.
 - No 3D/IFC preview and no published release — see the status table above.
 
 ---

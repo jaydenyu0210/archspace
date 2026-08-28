@@ -140,8 +140,10 @@ nodes:
     type: mcp.revit.query_model
     version: 1
     schemaHash: b3:9f2c…     # MCP tool schema this node was built against
+    promoted: [category]     # params this instance exposes as input ports (§5.1, ADR-0017);
+                             # sorted, deduped, omitted when empty
     config:
-      category: Rooms
+      category: Rooms        # kept: the fallback if the wire is removed
   - id: n_8t2mfa
     type: ai.generate_text
     version: 1
@@ -184,7 +186,7 @@ A node type is two things:
 1. A **declarative manifest** — pure serializable data. The app renders palettes and inspector forms, validates documents, and computes cache keys *without executing any plugin code*. Params are described in **JSON Schema (2020-12 subset)** — chosen over Zod or a bespoke schema because the manifest must cross process boundaries and languages, MCP tools already declare `inputSchema` as JSON Schema (making the MCP→node mapping mechanical, §9), and AI function-calling speaks it too. Zod stays a DX convenience in the TS SDK (compiled to JSON Schema), never the contract.
 2. An **implementation** — one async function, `execute(ctx, inputs, params)`, receiving *only* the capabilities in `ctx`. There is no ambient authority: no bare `fs`, no bare network, no provider SDKs. That single property is what makes the plugin boundary (§8) and the testkit (§14) possible.
 
-Config ("params") and dataflow inputs are **separate declarations**, because their UX differs (inspector form vs. wire), but any param marked *promotable* can be exposed as an input port of the corresponding type; a wired value overrides the configured one. (Grasshopper's everything-is-an-input was rejected as hostile to form-based configuration; n8n's hard split was rejected as hostile to composition. Promotion is the converged middle.)
+Config ("params") and dataflow inputs are **separate declarations**, because their UX differs (inspector form vs. wire), but any param marked *promotable* can be exposed as an input port of the corresponding type; a wired value overrides the configured one. (Grasshopper's everything-is-an-input was rejected as hostile to form-based configuration; n8n's hard split was rejected as hostile to composition. Promotion is the converged middle.) The choice is per **instance** and persists as a `promoted:` list on the node entry ([ADR-0017](adr/0017-param-promotion.md)) — two nodes of one type in the same graph can disagree about it, which is the property that keeps this the middle rather than the Grasshopper pole.
 
 ### 5.2 The contract, concretely
 
