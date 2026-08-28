@@ -138,8 +138,24 @@ export function createOAuthProvider(opts: {
 
     async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
       const result = await delegate.authorize(server, authorizationUrl.toString(), redirectUri);
-      if (expectedState !== undefined && result.state !== undefined && result.state !== expectedState) {
-        throw new Error(`MCP server "${server}": the authorization response carried the wrong state parameter; the sign-in was rejected.`);
+      // A MISSING state is a failed check, not a skipped one.
+      //
+      // `state()` above mints one for every flow, so the authorization server
+      // is required to echo it back (RFC 6749 §4.1.2) and a response without
+      // one did not come from a flow we started. Treating absence as "nothing
+      // to compare" made omitting the parameter the cheapest way past the
+      // check: the redirect URI is a loopback listener on a fixed port, so any
+      // local process — or any page the user visits while the five-minute
+      // window is open — could deliver `?code=<attacker's>` with no state, and
+      // the app would exchange it and bind this machine's session to someone
+      // else's account. Rejecting an absent state is the entire point of
+      // sending one.
+      if (expectedState !== undefined && result.state !== expectedState) {
+        throw new Error(
+          `MCP server "${server}": the authorization response did not carry back the state parameter this ` +
+            `sign-in sent, so it did not come from the page you were shown. Nothing was saved. Start the ` +
+            `sign-in again, and if it keeps happening, sign in with no other browser tabs open.`,
+        );
       }
       if (!result.code) {
         throw new Error(`MCP server "${server}": the authorization flow returned no code.`);
