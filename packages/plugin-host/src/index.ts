@@ -36,11 +36,13 @@
 export {
   ENGINE_API,
   PLUGIN_MANIFEST_FILENAME,
+  SECRET_ENV_PREFIX,
   describePermission,
   entryPath,
   isContainedRelativePath,
   isKnownPermission,
   parsePluginManifest,
+  pluginChildEnv,
   secretKeyOf,
 } from './manifest.js';
 export type { ConfigIssue, PluginManifest } from './manifest.js';

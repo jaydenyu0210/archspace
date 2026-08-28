@@ -201,16 +201,94 @@ export interface FetchResult {
 // Narrowing
 // ---------------------------------------------------------------------------
 
-const CHILD_MESSAGE_TAGS = new Set(['ready', 'load-error', 'log', 'progress', 'host-call', 'result', 'error']);
+const LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error']);
 
-/** A plugin process is untrusted input: never destructure a message before
- *  this has said it is one of ours. */
+const HOST_CALL_METHODS = new Set([
+  'assets.bytes',
+  'assets.put',
+  'secrets.get',
+  'ai.generateText',
+  'ai.generateObject',
+  'ai.embed',
+  'fetch',
+]);
+
+const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isString = (v: unknown): v is string => typeof v === 'string';
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * A plugin process is untrusted input: never destructure a message before this
+ * has said it is one of ours.
+ *
+ * "One of ours" means the *shape*, not merely the tag. It used to mean the tag
+ * alone, which made the guarantee this comment offers untrue in the one place
+ * it mattered: `spawnAndLoad` reads `raw.manifests.find(…)` straight off a
+ * `ready` message, so a plugin that sent `{"t":"ready","v":1}` — a bug in a
+ * third-party SDK is enough, malice is not required — threw a TypeError inside
+ * a `message` listener. That is an uncaught exception in the engine child, so
+ * one malformed line from a plugin took down the process whose entire purpose
+ * is to survive that plugin (ADR-0008, crash containment).
+ *
+ * Validation is per-tag and unforgiving, and a message that fails is dropped,
+ * exactly as an unknown tag always was. Being strict here is safe because the
+ * host never *needs* a child's message to make progress: `spawnAndLoad` has a
+ * start timeout, and an exec whose `result` is dropped still fails when the
+ * process exits or is killed.
+ */
 export function isChildToHost(message: unknown): message is ChildToHost {
+  if (!isPlainObject(message)) return false;
+  switch (message.t) {
+    case 'ready':
+      return isNumber(message.v) && Array.isArray(message.manifests) && message.manifests.every(isNodeManifestShaped);
+    case 'load-error':
+      return isString(message.message);
+    case 'log':
+      return isNumber(message.id) && isString(message.level) && LOG_LEVELS.has(message.level) && isString(message.message);
+    case 'progress':
+      return (
+        isNumber(message.id) &&
+        (message.fraction === undefined || isNumber(message.fraction)) &&
+        (message.message === undefined || isString(message.message))
+      );
+    case 'host-call':
+      return (
+        isNumber(message.callId) && isNumber(message.id) && isString(message.method) && HOST_CALL_METHODS.has(message.method)
+      );
+    case 'result':
+      return isNumber(message.id) && isPlainObject(message.outputs);
+    case 'error':
+      return (
+        isNumber(message.id) &&
+        isString(message.message) &&
+        typeof message.retryable === 'boolean' &&
+        (message.cancelled === undefined || typeof message.cancelled === 'boolean')
+      );
+    default:
+      return false;
+  }
+}
+
+/**
+ * The fields of a `NodeManifest` the host itself dereferences before the plugin
+ * has proved anything — deliberately not a full schema check.
+ *
+ * `type` is checked because the namespace guard reads it, `version` and
+ * `label` because the palette does, and `inputs`/`outputs`/`params` because the
+ * engine walks them for every edge. Beyond that the manifest is the plugin's
+ * own contract with its users, and a host that validated it exhaustively would
+ * be re-implementing the node SDK on the far side of a process boundary.
+ */
+function isNodeManifestShaped(value: unknown): boolean {
   return (
-    typeof message === 'object' &&
-    message !== null &&
-    typeof (message as { t?: unknown }).t === 'string' &&
-    CHILD_MESSAGE_TAGS.has((message as { t: string }).t)
+    isPlainObject(value) &&
+    isString(value.type) &&
+    isNumber(value.version) &&
+    isString(value.label) &&
+    Array.isArray(value.inputs) &&
+    Array.isArray(value.outputs) &&
+    isPlainObject(value.params)
   );
 }
 

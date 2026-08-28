@@ -52,6 +52,7 @@ import {
   PLUGIN_MANIFEST_FILENAME,
   entryPath,
   parsePluginManifest,
+  pluginChildEnv,
   secretKeyOf,
   type ConfigIssue,
   type PluginManifest,
@@ -211,10 +212,9 @@ class PluginRuntime {
   private spawnAndLoad(): Promise<NodeManifest[]> {
     const { opts } = this;
     return new Promise<NodeManifest[]>((resolveStart, rejectStart) => {
-      const env: Record<string, string> = {};
-      for (const [key, value] of Object.entries(process.env)) {
-        if (value !== undefined) env[key] = value;
-      }
+      // Not `process.env` verbatim: `pluginChildEnv` withholds the secret
+      // namespace, which a child would otherwise inherit before it ran a line.
+      const env = pluginChildEnv(process.env);
       // Marked so a plugin (and anyone reading `ps`) can tell what it is.
       env.ARCHSPACE_PLUGIN_ID = opts.pluginId;
 
@@ -237,7 +237,7 @@ class PluginRuntime {
         if (trimmed.length > 0) opts.log('warn', `[plugin ${opts.pluginId}] ${trimmed}`);
       });
 
-      proc.onMessage((raw) => {
+      const handleChildMessage = (raw: unknown): void => {
         if (!isChildToHost(raw)) return;
         if (raw.t === 'ready') {
           if (settled) return;
@@ -274,6 +274,28 @@ class PluginRuntime {
           return;
         }
         this.onChildMessage(raw);
+      };
+
+      // Second line of defence behind `isChildToHost`. That guard checks the
+      // shape of what a plugin sends; this catches everything that could still
+      // throw while acting on a well-shaped message — a capability service that
+      // rejects synchronously, a log sink that dies. Either way the exception
+      // arrives on a `message` listener, where an escape is an uncaught
+      // exception in the engine child, and containment (ADR-0008) means the
+      // plugin fails, not the process that hosts every other plugin.
+      proc.onMessage((raw) => {
+        try {
+          handleChildMessage(raw);
+        } catch (err) {
+          opts.log('error', `[plugin ${opts.pluginId}] host failed while handling a plugin message: ${String(err)}`);
+          this.stopping = true;
+          proc.kill();
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            rejectStart(new Error(`plugin "${opts.pluginId}" sent a message this host could not handle: ${String(err)}`));
+          }
+        }
       });
 
       proc.onExit((code, signal) => {

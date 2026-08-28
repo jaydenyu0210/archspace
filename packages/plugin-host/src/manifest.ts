@@ -212,6 +212,43 @@ export function secretKeyOf(permission: string): string | null {
 }
 
 /**
+ * The environment-variable namespace a secret provider may use, declared here
+ * rather than in the provider that populates it (`packages/cli/src/config.ts`),
+ * because the party that must *withhold* it is this one.
+ *
+ * `describePermission` below promises a user consenting to `secrets:<key>` that
+ * "no other secret is reachable". A child process inherits its parent's
+ * environment, so a host that puts secret values there and then spawns a plugin
+ * has handed over every one of them before the plugin has run a line — not as
+ * something the plugin could go and find (ADR-0008's honesty clause concedes
+ * that much, since `node:fs` is not revoked), but as something it was *given*,
+ * which is the exact distinction decision 2 draws. `pluginChildEnv` is what
+ * keeps the promise true.
+ */
+export const SECRET_ENV_PREFIX = 'ARCHSPACE_SECRET_';
+
+/**
+ * The environment a plugin child is spawned with: the host's, minus the secret
+ * namespace.
+ *
+ * Deliberately a subtraction rather than an allowlist. A curated environment
+ * would be the stronger boundary, but it would also break a plugin that needs
+ * `PATH`, a proxy variable or a locale for reasons we cannot enumerate — and
+ * ADR-0008 already states that v1 buys permission mediation, not confinement.
+ * Removing the one namespace this app puts secrets in is the part that is
+ * exactly as strong as it claims to be.
+ */
+export function pluginChildEnv(parentEnv: NodeJS.ProcessEnv): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parentEnv)) {
+    if (value === undefined) continue;
+    if (key.startsWith(SECRET_ENV_PREFIX)) continue;
+    env[key] = value;
+  }
+  return env;
+}
+
+/**
  * Consent-dialog copy. The `detail` says what the permission *actually* allows,
  * including what it does not stop — a consent dialog that oversells the
  * boundary is worse than none, given ADR-0008's honesty clause.

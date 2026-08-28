@@ -26,6 +26,7 @@ import {
   type AiGatewayConfig,
 } from '@archspace/ai-gateway';
 import { MCP_CONFIG_FILENAME, defaultMcpConfig, parseMcpConfig, type McpConfig } from '@archspace/mcp-host';
+import { SECRET_ENV_PREFIX } from '@archspace/plugin-host';
 
 export interface CliConfig {
   dir: string;
@@ -127,9 +128,15 @@ export async function loadCliConfig(dir = defaultConfigDir()): Promise<CliConfig
 /**
  * `ARCHSPACE_SECRET_<KEY>`, upper-cased with non-alphanumerics folded to `_`.
  * `acme_api_key` → `ARCHSPACE_SECRET_ACME_API_KEY`.
+ *
+ * The prefix is imported rather than written here, and that is the point: a
+ * plugin child is spawned with this namespace stripped from its environment
+ * (`pluginChildEnv`), so the party that populates it and the party that
+ * withholds it must agree on the spelling forever. Two string literals would
+ * agree today and silently stop agreeing the first time either moved.
  */
 export function envVarForSecret(key: string): string {
-  return `ARCHSPACE_SECRET_${key.replace(/[^A-Za-z0-9]+/g, '_').toUpperCase()}`;
+  return `${SECRET_ENV_PREFIX}${key.replace(/[^A-Za-z0-9]+/g, '_').toUpperCase()}`;
 }
 
 export const cliSecrets = {
