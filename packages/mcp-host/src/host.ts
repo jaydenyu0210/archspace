@@ -531,7 +531,25 @@ export function createMcpHost(opts: CreateMcpHostOptions): McpHost {
           // differ (description, trustReadOnlyHint). Take them without
           // disturbing the connection; the support verdict cannot have changed
           // because it is a function of the binding.
+          //
+          // "Advisory" is true of `description`, which `statusOf` reads live
+          // out of `record.config` every time it is asked. It was not true of
+          // `trustReadOnlyHint`: its only consumer copies it into a manifest at
+          // authoring time (`moduleFor`), and authoring happens on dial. So a
+          // user who un-ticked "allow caching" on a *connected* server changed
+          // a stored setting and nothing else — the nodes kept `caching:
+          // 'pure'` and the engine kept serving memoized results from a server
+          // the user had just declared untrustworthy for exactly that, with no
+          // error and a checkbox showing the new value. The reverse direction
+          // failed identically. Re-author when the flag moves; it needs no
+          // connection, because the tool list is already recorded.
+          //
+          // Modules only, not `author()`: authoring also resets `drift`, and a
+          // schema change this host has already detected is not undone by the
+          // user ticking a checkbox (ADR-0009 §5, detected not absorbed).
+          const cachingChanged = existing.config.trustReadOnlyHint !== server.trustReadOnlyHint;
           existing.config = server;
+          if (cachingChanged) existing.modules = existing.authored.map((tool) => moduleFor(existing, tool));
           continue;
         }
         records.set(name, freshRecord(name, server));

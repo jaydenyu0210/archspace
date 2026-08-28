@@ -313,6 +313,40 @@ describe('reconfiguring', () => {
     expect(status.description).toBe('Format conversions');
   });
 
+  it('applies a trustReadOnlyHint toggle to the nodes, without dropping the session', async () => {
+    // `sameServerConfig` deliberately treats this flag as advisory, so a
+    // toggle-only edit keeps the connection — which is right. What was wrong is
+    // what "take the advisory edit" meant. `description` is read live out of
+    // `record.config` by `statusOf`, so storing it is enough. This flag's only
+    // consumer copies it into a manifest at AUTHORING time, and authoring
+    // happens on dial — so storing it changed nothing a caller can see. The
+    // engine kept memoizing results (run.ts gates on `manifest.caching`) from a
+    // server the user had just declared untrustworthy for exactly that, with no
+    // error and a checkbox showing the new value.
+    const readOnly = { ...echoTool('peek'), annotations: { readOnlyHint: true } };
+    const server = fakeServer({ tools: [readOnly] });
+    const host = hostFor({ formats: server });
+    await host.configure({ servers: { formats: stdioConfig({ trustReadOnlyHint: true }) } });
+    await host.connect('formats');
+
+    const cachingOf = (h: McpHost) =>
+      h.nodeModules().find((m) => m.manifest.type === 'mcp.formats.peek')!.manifest.caching;
+    expect(cachingOf(host)).toBe('pure');
+
+    await host.configure({ servers: { formats: stdioConfig({ trustReadOnlyHint: false }) } });
+    expect(cachingOf(host)).toBe('never');
+    // Re-authoring must not have cost a round trip: the tool list is already
+    // recorded, so this is a pure re-derivation.
+    expect(server.dials).toBe(1);
+    expect(server.closed).toBe(0);
+    expect(statusOf(host, 'formats').state).toBe<McpConnectionState>('connected');
+
+    // And back, because a one-way fix is half a fix.
+    await host.configure({ servers: { formats: stdioConfig({ trustReadOnlyHint: true }) } });
+    expect(cachingOf(host)).toBe('pure');
+    expect(server.dials).toBe(1);
+  });
+
   it('drops the session when the binding really changed, and does not eagerly re-dial', async () => {
     const server = fakeServer({ tools: [echoTool()] });
     const host = hostFor({ formats: server });
