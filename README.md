@@ -18,47 +18,67 @@ graph, under version control.
 
 ---
 
-## Download
+## Get it running
 
-### Windows
+**Running from source is currently the most reliable way**, on any platform. It
+takes a few minutes and needs no signed binary — which matters, because the
+Windows installer is refused outright on newer machines and there is no macOS
+download yet. Both are explained below.
 
-**[Download the installer](https://github.com/jaydenyu0210/archspace/releases/latest)**
-— works on both Intel/AMD and ARM PCs. It does not need administrator rights.
+### From source — Windows, macOS, Linux
 
-This build is **not code-signed**, so Windows will object. Which box you get
-matters, because only one of them has a way through:
+Needs [Node](https://nodejs.org) 22 or newer and [pnpm](https://pnpm.io)
+(`npm i -g pnpm`).
+
+```sh
+git clone https://github.com/jaydenyu0210/archspace.git
+cd archspace
+pnpm install
+pnpm dev
+```
+
+That is the whole thing. On Windows it launches Electron's own signed binary, so
+Smart App Control has nothing to object to — you get the identical app, and a
+newer one than the download.
+
+The first `pnpm dev` prints `Downloading Electron binary...` and takes an extra
+minute — Electron fetches its ~100 MB runtime on first use. If that download
+fails (proxy, dropped connection, antivirus), run it directly to see why:
+`node packages/app/node_modules/electron/install.js`.
+
+### Windows installer
+
+**[Download it](https://github.com/jaydenyu0210/archspace/releases/latest)** —
+Intel/AMD and ARM, no administrator rights needed. It is **not code-signed**, so
+Windows will object, and which box you get decides whether you can proceed:
 
 | What you see | What to do |
 |---|---|
-| **"Windows protected your PC"** (blue box, SmartScreen) | **More info → Run anyway.** Expected, and the normal case. |
-| **"Smart App Control blocked an app that may be unsafe"** | There is no "run anyway". See below. |
+| **"Windows protected your PC"** (blue, SmartScreen) | **More info → Run anyway.** |
+| **"Smart App Control blocked an app that may be unsafe"** | Nothing — there is no override. Run from source instead. |
 
-**If Smart App Control blocked it**, no click gets you past it. Smart App
-Control is a Windows 11 feature that refuses apps it cannot attribute to a known
-publisher, and unlike SmartScreen it offers no override — signing is the only
-thing that satisfies it, and this build is not signed. Your options:
+Smart App Control is a Windows 11 feature that refuses apps it cannot attribute
+to a known publisher. Unlike SmartScreen it offers no way through: only a
+trusted signature satisfies it, and this build has none. It is on by default
+after a clean Windows 11 install, so the newest machines are the ones that hit
+it. You *can* turn it off — Windows Security → *App & browser control* → *Smart
+App Control settings* → *Off* — but **that cannot be undone without reinstalling
+Windows** and it lowers protection for every app on the machine. Running from
+source is the better answer. A signed build is tracked in
+[ADR-0014](docs/adr/0014-windows-packaging.md).
 
-1. **Run it from source instead** (recommended — see
-   [For developers](#for-developers)). You launch Electron's own signed binary,
-   so Smart App Control has no reason to intervene. You get the same app.
-2. **Turn Smart App Control off** — Windows Security → *App & browser control* →
-   *Smart App Control settings* → *Off*. Know the cost first: **this cannot be
-   undone without reinstalling Windows**, and it lowers protection for every app
-   on the machine, not just this one. Do not do it casually to try an alpha.
-3. **Wait for a signed build.** Tracked in
-   [ADR-0014](docs/adr/0014-windows-packaging.md); it needs a code-signing
-   certificate this project does not have yet.
-
-*Nobody has run this on Windows yet.* It builds and every file is verifiably in
-the right place, but you may be the first person to launch it. Please
+Two things worth knowing about the download: **the packaged installer has never
+successfully launched on Windows** — every attempt so far was blocked before it
+ran — and **it predates the DXF export, the IFC geometry, the drawn floor plan
+and the Save button**. Source has all of them. Please
 [open an issue](https://github.com/jaydenyu0210/archspace/issues) with whatever
-happens.
+you hit.
 
-### macOS
+### macOS download
 
 Not yet. The app builds and runs on macOS, but a download needs Apple signing
-and notarisation or macOS refuses to open it. Until that is set up,
-[build it from source](#for-developers).
+and notarisation or macOS refuses to open it. Until that is set up, run it from
+source.
 
 ---
 
@@ -189,30 +209,13 @@ machine), and any OpenAI-compatible endpoint work today.
 
 ## For developers
 
-Needs [Node](https://nodejs.org) (version in `.nvmrc`) and
-[pnpm](https://pnpm.io).
+Setup is the same four commands as [Get it running](#from-source--windows-macos-linux).
+After that:
 
 ```sh
-git clone https://github.com/jaydenyu0210/archspace.git
-cd archspace
-pnpm install
-pnpm dev      # run the app
 pnpm test     # 1104 tests across 12 packages
+pnpm build    # bundles the app; also what CI gates on
 ```
-
-This is also the way to run it on a Windows machine with Smart App Control on:
-`pnpm dev` launches Electron's own signed binary rather than an unsigned
-installer, so nothing is blocked. The app is identical.
-
-If `pnpm dev` reports that Electron's binary is missing, its ~100 MB runtime did
-not download during install. Re-run the installer directly — no pnpm command
-will do it for you:
-
-```sh
-node packages/app/node_modules/electron/install.js
-```
-
-More in [CONTRIBUTING.md §1](CONTRIBUTING.md#1-prerequisites).
 
 Run a workflow with no UI — a real feature, not a test harness:
 

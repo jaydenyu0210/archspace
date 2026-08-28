@@ -38,44 +38,35 @@ it is also the CI gate (§3).
 
 ### If `pnpm dev` says Electron is not installed
 
-The `electron` npm package is a few kilobytes of JavaScript; the ~100 MB runtime
-is fetched by its own postinstall step. When that step does not complete,
-`pnpm install` still reports success and the failure surfaces much later as
-`Error: Electron uninstall` from deep inside electron-vite — which names neither
-the cause nor the fix, and sends people looking for an uninstall they never ran.
+You should not see this any more, but the shape of it is worth knowing.
 
-`pnpm dev` and `pnpm smoke` now check for the binary first and print the fix
-instead. Run the installer **directly**:
+The `electron` package is a few hundred kilobytes of JavaScript; the ~100 MB
+runtime is a separate download. **Electron 44 removed the postinstall script
+that used to fetch it** and made the download lazy — `require('electron')`
+fetches it on first use. electron-vite does not go through that path: it reads
+`path.txt` itself and throws `Error: Electron uninstall` when the file is
+absent, so the lazy download never fires and a fresh clone dies at `pnpm dev`
+with a message naming neither the cause nor the fix.
+
+`pnpm dev` and `pnpm smoke` therefore run
+[`scripts/check-electron.mjs`](packages/app/scripts/check-electron.mjs) first,
+which requires `electron` and so triggers Electron's own downloader. The first
+run prints `Downloading Electron binary...` and takes a minute.
+
+If that download itself fails, run it directly to see why:
 
 ```sh
 node packages/app/node_modules/electron/install.js
 ```
 
-Two things about that command are easy to get wrong, and both were:
+Not through pnpm — `pnpm install`, `pnpm install --force` and
+`pnpm rebuild electron` will not do it, because electron declares no build
+script for them to run. Usual causes are a proxy, a dropped connection, or
+antivirus quarantining the archive; set `HTTPS_PROXY` or `ELECTRON_MIRROR` and
+retry.
 
-- **Not through pnpm.** Once the script has been skipped, `pnpm install`,
-  `pnpm install --force`, `pnpm rebuild electron` and `pnpm rebuild -r electron`
-  all decline to re-run it. They report success and change nothing. This was
-  tested, not assumed.
-- **Not from the repo root.** `electron` is a dependency of `@archspace/app`,
-  not of the workspace root, so there is no top-level `node_modules/electron`
-  and the obvious path fails with a module-not-found that looks like a second,
-  unrelated problem.
-
-Why it was skipped, in order of likelihood:
-
-1. **Your pnpm ignored the build-script allowlist.** pnpm has moved its settings
-   out of the `pnpm` field in `package.json` and into `pnpm-workspace.yaml`;
-   newer versions ignore the old location and say so in a warning that is easy
-   to scroll past. This repo declares `onlyBuiltDependencies` in
-   `pnpm-workspace.yaml` for that reason — a fresh clone on pnpm 11 hit exactly
-   this, and Electron never downloaded.
-2. **The download failed** — a proxy, a dropped connection, or antivirus
-   quarantining the archive. Set `HTTPS_PROXY`, or point Electron at a mirror
-   with `ELECTRON_MIRROR`, and retry.
-
-Note that `pnpm build`, `pnpm test` and `pnpm cli` all work without the binary —
-only launching the app needs it.
+`pnpm build`, `pnpm test` and `pnpm cli` all work without the binary — only
+launching the app needs it.
 
 ---
 

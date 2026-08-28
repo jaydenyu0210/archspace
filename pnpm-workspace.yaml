@@ -3,15 +3,18 @@ packages:
   - plugins/*
 
 # Build scripts pnpm is allowed to run. pnpm 10 blocks postinstall scripts by
-# default, and Electron's is not optional: the npm package is a few kilobytes of
-# JavaScript and its ~100 MB runtime is downloaded by that script. Without this
-# list `pnpm install` succeeds, `pnpm dev` then fails with "Error: Electron
-# uninstall", and nothing connects the two.
+# default, so anything that genuinely needs one has to be named here.
 #
 # This lives here rather than in package.json's `pnpm` field because pnpm has
-# moved its settings: newer versions ignore that field outright and say so in a
-# warning that is easy to scroll past. A fresh clone on pnpm 11 hit exactly
-# that — the allowlist was silently dropped and Electron never downloaded.
+# moved its settings: newer versions ignore that field outright and warn about
+# it, so on pnpm 11 the list was silently dropped and esbuild's build script
+# stopped running.
+#
+# `electron` is listed for older Electron releases and for anyone pinning one.
+# Electron 44 declares no build script at all — it downloads its binary on first
+# `require('electron')` instead — so for the version this repo uses the entry is
+# inert. See packages/app/scripts/check-electron.mjs, which is what actually
+# makes that download happen before electron-vite goes looking for the binary.
 onlyBuiltDependencies:
   - electron
   - esbuild
