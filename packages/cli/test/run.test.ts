@@ -96,7 +96,10 @@ describe('archspace run — a workflow this machine cannot run', () => {
     const result = await runCli(['run', path, '--config-dir', dir]);
 
     expect(result.code).toBe(1);
-    expect(result.output).toContain('Invalid workflow document:');
+    // The file is named, because a script may run many and "invalid workflow
+    // document" alone does not say which.
+    expect(result.output).toContain('Invalid workflow document (');
+    expect(result.output).toContain('broken.archspace.yaml');
     expect(result.output).not.toContain('run started');
   });
 
@@ -159,4 +162,76 @@ describe('archspace nodes — the harness surface CI reads', () => {
     // configured MCP server legitimately would.
     for (const type of coreNodeTypes()) expect(types).toContain(type);
   });
+});
+
+/**
+ * What the CLI says when it refuses, which is the only thing a headless user
+ * has to work with.
+ *
+ * Each of these printed something that was true and useless. The information
+ * they needed had already been computed and was then dropped on the floor:
+ * `extractWorkflow` knows which entry was malformed, `GraphValidationError`
+ * carries the issue that names the bad target, and `readFile`'s errno
+ * distinguishes the three mistakes a person actually makes.
+ */
+describe('a refusal that tells the user what to do', () => {
+  it('names the mistyped target and lists the ids that exist', async () => {
+    // Was: "graph validation failed with 1 error(s): unknown-target" — the
+    // exception's internal roll-up, with every message under it discarded.
+    const dir = await tempDir({
+      'w.archspace.yaml': workflowYaml('Targets', [{ id: 'n_realid', type: 'aec.project_brief', config: {} }]),
+    });
+    const { code, output } = await runCli(['run', join(dir, 'w.archspace.yaml'), '--target', 'n_wrong']);
+    expect(code).toBe(1);
+    expect(output).toContain('n_wrong');
+    expect(output).toContain('n_realid');
+    expect(output).not.toContain('graph validation failed with');
+  }, 60_000);
+
+  it('says a directory is a directory', async () => {
+    // Was: "EISDIR: illegal operation on a directory, read".
+    const dir = await tempDir();
+    const { code, output } = await runCli(['run', dir]);
+    expect(code).toBe(1);
+    expect(output).toContain('is a directory, not a workflow file');
+    expect(output).not.toContain('EISDIR');
+  }, 60_000);
+
+  it('says a missing file is missing, and names it', async () => {
+    const dir = await tempDir();
+    const { code, output } = await runCli(['run', join(dir, 'absent.archspace.yaml')]);
+    expect(code).toBe(1);
+    expect(output).toContain('No such workflow file');
+    expect(output).toContain('absent.archspace.yaml');
+    expect(output).not.toContain('ENOENT');
+  }, 60_000);
+
+  it('points at the entry that is wrong, not merely at the file', async () => {
+    // `extractWorkflow` computes `nodes[1]` for this and the CLI printed only
+    // the message, so "node entry is not a map" arrived with no way to tell
+    // which entry in a fifty-node file.
+    const dir = await tempDir({
+      'w.archspace.yaml': [
+        'archspace: 1',
+        'kind: workflow',
+        'meta:',
+        '  name: Malformed',
+        'nodes:',
+        '  - id: n_goodid',
+        '    type: aec.project_brief',
+        '    version: 1',
+        '    config: {}',
+        '  - "not a map at all"',
+        'edges: []',
+        'layout: {}',
+        '',
+      ].join('\n'),
+    });
+    const { code, output } = await runCli(['run', join(dir, 'w.archspace.yaml')]);
+    expect(code).toBe(1);
+    expect(output).toContain('nodes[1]');
+    expect(output).toContain('node entry is not a map');
+    // And the file it could not read, since a script may run many.
+    expect(output).toContain('w.archspace.yaml');
+  }, 60_000);
 });

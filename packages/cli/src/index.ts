@@ -18,8 +18,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, resolve as resolvePath } from 'node:path';
-import { parseWorkflow } from '@archspace/document';
-import { startRun, toEngineGraph, validateGraph, type EngineGraph, type RunEvent } from '@archspace/engine';
+import { parseWorkflow, type DocIssue } from '@archspace/document';
+import { GraphValidationError, startRun, toEngineGraph, validateGraph, type EngineGraph, type RunEvent } from '@archspace/engine';
 import { assetFileName, type AssetRef, type AssetStore } from '@archspace/node-sdk';
 import { envVarForSecret } from './config.js';
 import { createRuntime, type Runtime } from './runtime.js';
@@ -114,15 +114,57 @@ function fmtEvent(e: RunEvent, t0: number): string {
   }
 }
 
+/**
+ * Read a workflow file, or explain why not.
+ *
+ * `readFile` rejects with a bare errno — pointing `archspace run` at a
+ * directory printed "EISDIR: illegal operation on a directory, read", which
+ * names neither the path the user typed nor anything they could do. The
+ * mistakes worth distinguishing are the three a person actually makes: a typo
+ * in the path, a directory instead of a file, and a file they cannot read.
+ */
+async function readWorkflowFile(file: string): Promise<string | null> {
+  try {
+    return await readFile(file, 'utf8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      console.error(`No such workflow file: ${file}`);
+      console.error('Pass the path to a .archspace.yaml file, or run `archspace --help`.');
+    } else if (code === 'EISDIR') {
+      console.error(`${file} is a directory, not a workflow file.`);
+      console.error('Name the .archspace.yaml file inside it.');
+    } else if (code === 'EACCES') {
+      console.error(`Cannot read ${file}: permission denied.`);
+    } else {
+      console.error(`Cannot read ${file}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return null;
+  }
+}
+
+/**
+ * A document issue with the location it already knows.
+ *
+ * `extractWorkflow` computes a path for every issue it reports — `nodes[3].id`,
+ * `layout.n_k3v9qp` — and the CLI printed only the message, so "node entry is
+ * not a map" arrived with no way to tell WHICH entry in a fifty-node file. The
+ * information was there the whole time; nothing consumed it.
+ */
+function describeIssue(issue: DocIssue): string {
+  return issue.path === undefined ? issue.message : `${issue.path}: ${issue.message}`;
+}
+
 async function cmdRun(file: string): Promise<number> {
-  const text = await readFile(file, 'utf8');
+  const text = await readWorkflowFile(file);
+  if (text === null) return 1;
   const parsed = parseWorkflow(text);
   if (!parsed.ok) {
-    console.error('Invalid workflow document:');
-    for (const issue of parsed.issues) console.error(`  [${issue.severity}] ${issue.message}`);
+    console.error(`Invalid workflow document (${file}):`);
+    for (const issue of parsed.issues) console.error(`  [${issue.severity}] ${describeIssue(issue)}`);
     return 1;
   }
-  for (const issue of parsed.issues) console.warn(`  [${issue.severity}] ${issue.message}`);
+  for (const issue of parsed.issues) console.warn(`  [${issue.severity}] ${describeIssue(issue)}`);
 
   const rt = await runtime();
   try {
@@ -140,13 +182,29 @@ async function cmdRun(file: string): Promise<number> {
 
     const targets = options('target');
     console.log(`Running ${parsed.doc.meta.name} (${graph.nodes.length} nodes)\n`);
-    const handle = startRun(graph, {
-      registry: rt.registry,
-      assets: rt.assets,
-      ai: rt.ai,
-      laneCaps: rt.laneCaps,
-      ...(targets.length > 0 ? { targets } : {}),
-    });
+    let handle;
+    try {
+      handle = startRun(graph, {
+        registry: rt.registry,
+        assets: rt.assets,
+        ai: rt.ai,
+        laneCaps: rt.laneCaps,
+        ...(targets.length > 0 ? { targets } : {}),
+      });
+    } catch (err) {
+      // `startRun` validates the TARGETS, which `validateGraph` above cannot
+      // see, and reports them the way every other validation error is reported
+      // — as issues. Letting the error reach `main`'s catch printed only
+      // `GraphValidationError.message`, an internal roll-up ("graph validation
+      // failed with 1 error(s): unknown-target") that names the code and
+      // discards every message under it. A mistyped `--target` therefore told
+      // the user nothing about which id was wrong or what the right ones are,
+      // while the answer sat in `issues` unread.
+      if (!(err instanceof GraphValidationError)) throw err;
+      for (const issue of err.issues) console.error(`  [${issue.severity}] ${issue.code}: ${issue.message}`);
+      console.error('\nValidation failed — not running.');
+      return 1;
+    }
     const t0 = Date.now();
 
     // Assets are collected from the run events rather than by walking outputs

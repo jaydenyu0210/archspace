@@ -134,12 +134,20 @@ export function startRun(graph: EngineGraph, opts: RunOptions): RunHandle {
 
   // Targets: default = whole graph; unknown ids are a validation error too.
   const targets = [...new Set(opts.targets ?? graph.nodes.map((n) => n.id))];
+  // Naming the alternatives, because a target is a node id a person typed and
+  // the correction is almost always one of the ids in front of them. Capped,
+  // because a hundred-node graph turns help into a wall.
+  const knownIds = graph.nodes.map((n) => n.id);
+  const suggestion =
+    knownIds.length <= 12
+      ? ` — this graph has ${knownIds.join(', ')}`
+      : ` — this graph has ${knownIds.slice(0, 12).join(', ')} and ${knownIds.length - 12} more`;
   const targetIssues: ValidationIssue[] = targets
     .filter((t) => !specById.has(t))
     .map((t) => ({
       severity: 'error' as const,
       code: 'unknown-target',
-      message: `run target "${t}" is not a node in the graph`,
+      message: `run target "${t}" is not a node in the graph${knownIds.length > 0 ? suggestion : ''}`,
     }));
   if (targetIssues.length > 0) throw new GraphValidationError([...issues, ...targetIssues]);
 
