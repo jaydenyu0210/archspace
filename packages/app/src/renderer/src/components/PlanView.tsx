@@ -16,6 +16,7 @@
  * every room gets an identity without the label collisions that drawing all of
  * them produces.
  */
+import { useState } from 'react';
 import type { PlanLevelPreview } from '@archspace/engine';
 import {
   flipTransform,
@@ -29,19 +30,46 @@ import {
 } from '../plan-geometry';
 
 export interface PlanViewProps {
-  level: PlanLevelPreview;
+  levels: PlanLevelPreview[];
+  /** Storeys in the plan, which may exceed `levels.length`. */
   levelCount: number;
   site: { widthMm: number; depthMm: number };
 }
 
 const metres = (mm: number): string => (mm / 1000).toFixed(1);
 
-export function PlanView({ level, levelCount, site }: PlanViewProps) {
+export function PlanView({ levels, levelCount, site }: PlanViewProps) {
+  const [shown, setShown] = useState(0);
+  // A re-run can return fewer storeys than the last one, and an index left
+  // pointing past the end renders nothing at all.
+  const level = levels[Math.min(shown, levels.length - 1)];
+  if (level === undefined) return null;
+
   const box = planBounds(level, site);
   const size = labelSize(box);
 
   return (
     <div className="plan-view">
+      {/* A labelled group of toggles rather than a tablist: `role="tab"`
+          requires a `tabpanel` it controls, and claiming a pattern that is not
+          fully implemented is worse for a screen reader than not claiming it. */}
+      {levels.length > 1 && (
+        <div className="plan-storeys" role="group" aria-label="Storey">
+          {levels.map((l, i) => (
+            <button
+              key={l.level}
+              type="button"
+              aria-pressed={i === shown}
+              className={`plan-storey${i === shown ? ' is-current' : ''}`}
+              onClick={() => setShown(i)}
+              // The plan numbers storeys from zero; people count from one.
+              title={`Storey ${l.level + 1} — ${l.rooms.length} rooms`}
+            >
+              {l.level + 1}
+            </button>
+          ))}
+        </div>
+      )}
       <svg
         className="plan-svg"
         viewBox={`${box.minX} ${box.minY} ${box.width} ${box.height}`}
@@ -121,7 +149,14 @@ export function PlanView({ level, levelCount, site }: PlanViewProps) {
         storey {level.level + 1} of {levelCount} · {level.rooms.length} rooms ·{' '}
         {level.walls.length} walls · {level.doors.length} doors · site {metres(site.widthMm)} ×{' '}
         {metres(site.depthMm)} m
-        {levelCount > 1 && <span className="plan-note"> · other storeys not previewed</span>}
+        {/* Only when storeys were actually dropped. Saying it unconditionally,
+            as the first version did, claimed a limitation that no longer
+            applies to a building this preview carries whole. */}
+        {levels.length < levelCount && (
+          <span className="plan-note">
+            {' '}· {levels.length} of {levelCount} storeys previewed
+          </span>
+        )}
       </div>
     </div>
   );

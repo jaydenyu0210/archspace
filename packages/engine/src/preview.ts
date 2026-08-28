@@ -28,15 +28,20 @@ export type ValuePreview =
   /**
    * A floor plan, as geometry the UI can draw (`PortDecl.preview: 'plan'`).
    *
-   * Only the first storey, because the panel shows one plan at a time and the
-   * whole point is to be small: the full six-storey value is 261,000 characters
-   * of JSON, of which the generic preview showed the leading 6%. `levelCount`
-   * says what was left out so the UI can say so rather than implying the
-   * building has one floor.
+   * Every storey the budget allows, so the panel can offer a storey switcher —
+   * the first cut sent only the ground floor, which showed a sixth of a
+   * six-storey building and implied the rest did not exist. `levelCount` is the
+   * total in the plan, so `levels.length < levelCount` is what the UI reports
+   * rather than quietly presenting a partial building as a whole one.
+   *
+   * Still enormously smaller than what it replaces: the full value is 261,000
+   * characters of JSON, of which the generic preview showed the leading 6%,
+   * cut mid-structure.
    */
   | {
       kind: 'plan';
-      level: PlanLevelPreview;
+      levels: PlanLevelPreview[];
+      /** Storeys in the plan, which may exceed `levels.length`. */
       levelCount: number;
       site: { widthMm: number; depthMm: number };
       metrics?: Record<string, Value>;
@@ -51,6 +56,22 @@ export interface OutputPreview {
 
 const TEXT_CAP = 16_000;
 const TABLE_ROW_CAP = 50;
+
+/**
+ * How much plan geometry one preview may carry, counted in drawable items — a
+ * polygon vertex, a wall, a door, an exit.
+ *
+ * A budget rather than a storey count, because storeys are not the same size:
+ * six floors of this example are about 1,600 items and 34 KB, while a tower
+ * with a hundred thin floors would be neither. The preview rides on every
+ * `node:succeeded` event, so what has to be bounded is the bytes, not the
+ * floors.
+ */
+const PLAN_ITEM_BUDGET = 4_000;
+
+/** And a hard stop on storeys, so a tall building cannot spend the whole
+ *  budget on floors nobody will click through. */
+const PLAN_LEVEL_CAP = 24;
 
 /**
  * A floor plan reduced to drawable geometry, or null if the value is not one.
@@ -69,64 +90,87 @@ function planPreview(value: Value): ValuePreview | null {
   const site = plan.site;
   if (!Array.isArray(levels) || typeof site !== 'object' || site === null || Array.isArray(site)) return null;
 
-  const first = levels[0];
-  if (typeof first !== 'object' || first === null || Array.isArray(first)) return null;
-  const level = first as Record<string, Value>;
-
   const point = (v: Value): [number, number] | null =>
     Array.isArray(v) && typeof v[0] === 'number' && typeof v[1] === 'number' ? [v[0], v[1]] : null;
 
-  const rooms: PlanLevelPreview['rooms'] = [];
-  for (const entry of Array.isArray(level.rooms) ? level.rooms : []) {
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
-    const room = entry as Record<string, Value>;
-    const polygon = (Array.isArray(room.polygon) ? room.polygon : [])
-      .map(point)
-      .filter((p): p is [number, number] => p !== null);
-    if (polygon.length < 3) continue;
-    rooms.push({ name: typeof room.name === 'string' ? room.name : '', polygon });
-  }
+  /** One storey, or null if there is nothing on it worth drawing. */
+  const readLevel = (entry: Value): PlanLevelPreview | null => {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return null;
+    const level = entry as Record<string, Value>;
 
-  const walls: PlanLevelPreview['walls'] = [];
-  for (const entry of Array.isArray(level.walls) ? level.walls : []) {
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
-    const wall = entry as Record<string, Value>;
-    const start = point(wall.start);
-    const end = point(wall.end);
-    if (start === null || end === null) continue;
-    walls.push([start[0], start[1], end[0], end[1], typeof wall.thicknessMm === 'number' ? wall.thicknessMm : 100]);
-  }
+    const rooms: PlanLevelPreview['rooms'] = [];
+    for (const item of Array.isArray(level.rooms) ? level.rooms : []) {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
+      const room = item as Record<string, Value>;
+      const polygon = (Array.isArray(room.polygon) ? room.polygon : [])
+        .map(point)
+        .filter((p): p is [number, number] => p !== null);
+      if (polygon.length < 3) continue;
+      rooms.push({ name: typeof room.name === 'string' ? room.name : '', polygon });
+    }
 
-  const doors: PlanLevelPreview['doors'] = [];
-  for (const entry of Array.isArray(level.doors) ? level.doors : []) {
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
-    const door = entry as Record<string, Value>;
-    const at = point(door.position);
-    if (at === null) continue;
-    doors.push([at[0], at[1], typeof door.widthMm === 'number' ? door.widthMm : 900]);
-  }
+    const walls: PlanLevelPreview['walls'] = [];
+    for (const item of Array.isArray(level.walls) ? level.walls : []) {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
+      const wall = item as Record<string, Value>;
+      const start = point(wall.start);
+      const end = point(wall.end);
+      if (start === null || end === null) continue;
+      walls.push([start[0], start[1], end[0], end[1], typeof wall.thicknessMm === 'number' ? wall.thicknessMm : 100]);
+    }
 
-  const exits: PlanLevelPreview['exits'] = [];
-  for (const entry of Array.isArray(level.exits) ? level.exits : []) {
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
-    const at = point((entry as Record<string, Value>).position);
-    if (at !== null) exits.push(at);
-  }
+    const doors: PlanLevelPreview['doors'] = [];
+    for (const item of Array.isArray(level.doors) ? level.doors : []) {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
+      const door = item as Record<string, Value>;
+      const at = point(door.position);
+      if (at === null) continue;
+      doors.push([at[0], at[1], typeof door.widthMm === 'number' ? door.widthMm : 900]);
+    }
 
-  // Nothing to draw is not a plan. Falling through to JSON at least shows
-  // whatever did arrive, which is what someone debugging needs to see.
-  if (rooms.length === 0 && walls.length === 0) return null;
+    const exits: PlanLevelPreview['exits'] = [];
+    for (const item of Array.isArray(level.exits) ? level.exits : []) {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
+      const at = point((item as Record<string, Value>).position);
+      if (at !== null) exits.push(at);
+    }
 
-  const dims = site as Record<string, Value>;
-  return {
-    kind: 'plan',
-    level: {
+    if (rooms.length === 0 && walls.length === 0) return null;
+    return {
       level: typeof level.level === 'number' ? level.level : 0,
       rooms,
       walls,
       doors,
       exits,
-    },
+    };
+  };
+
+  const items = (level: PlanLevelPreview): number =>
+    level.rooms.reduce((n, r) => n + r.polygon.length, 0)
+    + level.walls.length + level.doors.length + level.exits.length;
+
+  const kept: PlanLevelPreview[] = [];
+  let spent = 0;
+  for (const entry of levels) {
+    if (kept.length >= PLAN_LEVEL_CAP) break;
+    const level = readLevel(entry);
+    if (level === null) continue;
+    const cost = items(level);
+    // The first storey goes in whatever it costs: a preview that budgets its
+    // way down to nothing is worse than one that is slightly over.
+    if (kept.length > 0 && spent + cost > PLAN_ITEM_BUDGET) break;
+    kept.push(level);
+    spent += cost;
+  }
+
+  // Nothing drawable is not a plan. Falling through to JSON at least shows
+  // whatever did arrive, which is what someone debugging needs to see.
+  if (kept.length === 0) return null;
+
+  const dims = site as Record<string, Value>;
+  return {
+    kind: 'plan',
+    levels: kept,
     levelCount: levels.length,
     site: {
       widthMm: typeof dims.widthMm === 'number' ? dims.widthMm : 0,

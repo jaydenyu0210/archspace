@@ -192,14 +192,17 @@ describe('plan previews', () => {
     const plan = preview as Extract<ValuePreview, { kind: 'plan' }>;
     expect(plan.levelCount).toBe(2);
     expect(plan.site).toEqual({ widthMm: 48000, depthMm: 32000 });
-    expect(plan.level.rooms).toEqual([
+    // The second level is empty, so nothing drawable came off it and it is not
+    // carried — the level *count* is what tells the UI it exists.
+    expect(plan.levels).toHaveLength(1);
+    expect(plan.levels[0]?.rooms).toEqual([
       { name: 'Corridor', polygon: [[0, 15100], [48000, 15100], [48000, 16900], [0, 16900]] },
     ]);
     // Walls and doors are flattened tuples: at ~640 walls a plan, the key names
     // cost more than the numbers do.
-    expect(plan.level.walls).toEqual([[0, 0, 48000, 0, 200]]);
-    expect(plan.level.doors).toEqual([[2400, 15100, 900]]);
-    expect(plan.level.exits).toEqual([[0, 16000]]);
+    expect(plan.levels[0]?.walls).toEqual([[0, 0, 48000, 0, 200]]);
+    expect(plan.levels[0]?.doors).toEqual([[2400, 15100, 900]]);
+    expect(plan.levels[0]?.exits).toEqual([[0, 16000]]);
   });
 
   it('is dramatically smaller than the JSON it replaces', async () => {
@@ -249,7 +252,98 @@ describe('plan previews', () => {
     const { events } = await runSingle(planModule(damaged));
     const preview = ofType(events, 'node:succeeded')[0].outputPreviews[0].preview;
     expect(preview.kind).toBe('plan');
-    expect((preview as Extract<ValuePreview, { kind: 'plan' }>).level.rooms.map((r) => r.name)).toEqual(['Good']);
+    expect((preview as Extract<ValuePreview, { kind: 'plan' }>).levels[0]?.rooms.map((r) => r.name)).toEqual(['Good']);
+  });
+
+  it('carries every storey it can, so the panel can offer a switcher', async () => {
+    // The first cut sent only the ground floor, which showed a sixth of a
+    // six-storey building and implied the rest did not exist.
+    const storeys = (n: number): Value => ({
+      site: { widthMm: 48000, depthMm: 32000 },
+      levels: Array.from({ length: n }, (_, i) => ({
+        level: i,
+        rooms: [{ name: `Room ${i}`, areaM2: 10, polygon: [[0, 0], [5000, 0], [5000, 4000], [0, 4000]] }],
+        walls: [{ id: `w${i}`, start: [0, 0], end: [5000, 0], thicknessMm: 200, kind: 'exterior' }],
+        doors: [],
+        exits: [],
+      })),
+    }) as unknown as Value;
+
+    const { events } = await runSingle(planModule(storeys(6)));
+    const plan = ofType(events, 'node:succeeded')[0].outputPreviews[0].preview as Extract<ValuePreview, { kind: 'plan' }>;
+    expect(plan.levels).toHaveLength(6);
+    expect(plan.levelCount).toBe(6);
+    expect(plan.levels.map((l) => l.level)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it('stops at a budget, and says how many storeys the plan really has', async () => {
+    // The preview rides on every node:succeeded event. Six storeys of the real
+    // example are ~34 KB; a hundred-storey tower must not be ~570 KB, and the
+    // UI must not present the storeys it did get as the whole building.
+    const tall = {
+      site: { widthMm: 48000, depthMm: 32000 },
+      levels: Array.from({ length: 200 }, (_, i) => ({
+        level: i,
+        rooms: Array.from({ length: 20 }, (_, r) => ({
+          name: `Room ${r}`,
+          areaM2: 10,
+          polygon: [[0, 0], [5000, 0], [5000, 4000], [0, 4000]],
+        })),
+        walls: Array.from({ length: 40 }, () => ({ start: [0, 0], end: [5000, 0], thicknessMm: 200 })),
+        doors: [],
+        exits: [],
+      })),
+    } as unknown as Value;
+
+    const { events } = await runSingle(planModule(tall));
+    const plan = ofType(events, 'node:succeeded')[0].outputPreviews[0].preview as Extract<ValuePreview, { kind: 'plan' }>;
+    expect(plan.levelCount).toBe(200);
+    expect(plan.levels.length).toBeLessThan(200);
+    expect(plan.levels.length).toBeGreaterThan(0);
+    // Bounded in bytes, which is the thing that actually matters.
+    expect(JSON.stringify(plan).length).toBeLessThan(200_000);
+  });
+
+  it('never budgets its way down to nothing', async () => {
+    // One enormous storey still previews: a plan the user can see is worth more
+    // than a byte count, and returning nothing here would fall back to JSON.
+    const huge = {
+      site: { widthMm: 48000, depthMm: 32000 },
+      levels: [
+        {
+          level: 0,
+          rooms: Array.from({ length: 4000 }, () => ({
+            name: 'R',
+            polygon: [[0, 0], [1, 0], [1, 1], [0, 1]],
+          })),
+          walls: [],
+          doors: [],
+          exits: [],
+        },
+        { level: 1, rooms: [{ name: 'Next', polygon: [[0, 0], [1, 0], [1, 1]] }], walls: [], doors: [], exits: [] },
+      ],
+    } as unknown as Value;
+
+    const { events } = await runSingle(planModule(huge));
+    const plan = ofType(events, 'node:succeeded')[0].outputPreviews[0].preview as Extract<ValuePreview, { kind: 'plan' }>;
+    expect(plan.kind).toBe('plan');
+    expect(plan.levels).toHaveLength(1);
+    expect(plan.levelCount).toBe(2);
+  });
+
+  it('skips a storey with nothing on it rather than showing an empty plan', async () => {
+    const withGap = {
+      site: { widthMm: 48000, depthMm: 32000 },
+      levels: [
+        { level: 0, rooms: [], walls: [], doors: [], exits: [] },
+        { level: 1, rooms: [{ name: 'Real', polygon: [[0, 0], [5000, 0], [5000, 4000]] }], walls: [], doors: [], exits: [] },
+      ],
+    } as unknown as Value;
+
+    const { events } = await runSingle(planModule(withGap));
+    const plan = ofType(events, 'node:succeeded')[0].outputPreviews[0].preview as Extract<ValuePreview, { kind: 'plan' }>;
+    expect(plan.levels.map((l) => l.level)).toEqual([1]);
+    expect(plan.levelCount).toBe(2);
   });
 
   it('ignores the hint on ports that carry something else entirely', async () => {

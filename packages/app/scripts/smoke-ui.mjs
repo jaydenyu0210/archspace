@@ -29,7 +29,7 @@
  *     pnpm --filter @archspace/app build && pnpm --filter @archspace/app smoke
  */
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -72,6 +72,43 @@ try {
   process.exit(1);
 } catch {
   // Nothing there: the state this script requires.
+}
+
+/**
+ * Refuse to run against a build older than the source it was built from.
+ *
+ * This script launches whatever is in `out/`, so a failed `pnpm build` leaves
+ * it testing the previous build — and reporting a pass for code that does not
+ * compile. That happened: a syntax error esbuild rejected and `tsc --noEmit`
+ * did not, and the smoke test went green on the stale bundle immediately
+ * afterwards. A stale pass is worse than no test, because it is trusted.
+ */
+async function newestMtime(dir) {
+  let newest = 0;
+  for (const entry of await readdir(dir, { withFileTypes: true, recursive: true })) {
+    if (!entry.isFile()) continue;
+    // node_modules is not ours and dominates the walk.
+    if (entry.parentPath.includes('node_modules')) continue;
+    newest = Math.max(newest, (await stat(join(entry.parentPath, entry.name))).mtimeMs);
+  }
+  return newest;
+}
+
+const [srcTime, outTime] = await Promise.all([
+  newestMtime(join(APP, 'src')),
+  newestMtime(join(APP, 'out')).catch(() => 0),
+]);
+if (outTime === 0) {
+  console.error('smoke: no build in out/ — run `pnpm build` first.');
+  process.exit(1);
+}
+if (srcTime > outTime) {
+  console.error(
+    `smoke: out/ is older than src/ by ${Math.round((srcTime - outTime) / 1000)}s.\n` +
+      'Refusing to run, because this would report a pass for the previous build.\n' +
+      'Run `pnpm build` and check that it succeeded.',
+  );
+  process.exit(1);
 }
 
 const child = spawn(
@@ -342,6 +379,31 @@ if (plan.labels < 5) fail(`only ${plan.labels} room labels drawn — the fit tes
 const extent = (plan.viewBox ?? '').split(/\s+/).map(Number);
 if (extent.length !== 4 || !(extent[2] > 0) || !(extent[3] > 0)) fail(`bad plan viewBox: ${plan.viewBox}`);
 
+// Every storey the budget allows is carried, so the panel offers a switcher.
+// The first version sent only the ground floor, which showed a sixth of a
+// six-storey building and implied the rest did not exist.
+const storeys = await evaluate(ws, 895, `JSON.stringify({
+  buttons: document.querySelectorAll('.plan-storey').length,
+  current: document.querySelector('.plan-storey.is-current')?.innerText ?? null,
+  rooms: [...document.querySelectorAll('.plan-room title')].map(t => t.textContent).slice(0, 3),
+})`);
+if (storeys.buttons !== 6) fail(`expected a switcher for the example's 6 storeys; found ${storeys.buttons}`);
+
+await evaluate(ws, 896, `[...document.querySelectorAll('.plan-storey')][3]?.click(), '"ok"'`);
+await new Promise((r) => setTimeout(r, 500));
+const switched = await evaluate(ws, 897, `JSON.stringify({
+  current: document.querySelector('.plan-storey.is-current')?.innerText ?? null,
+  caption: document.querySelector('.plan-caption')?.innerText ?? null,
+  rooms: [...document.querySelectorAll('.plan-room title')].map(t => t.textContent).slice(0, 3),
+})`);
+if (switched.current !== '4') fail(`clicking storey 4 left "${switched.current}" selected`);
+if (!/storey 4 of 6/.test(switched.caption ?? '')) fail(`the caption did not follow the switcher: ${switched.caption}`);
+// The selection changing is not the same as the drawing changing — a switcher
+// that highlights a button and redraws the same storey looks entirely correct.
+if (JSON.stringify(switched.rooms) === JSON.stringify(storeys.rooms)) {
+  fail(`storey 4 drew the same rooms as storey 1: ${JSON.stringify(switched.rooms)}`);
+}
+
 // The panel that holds it is resizable, because 216px of fixed height leaves
 // about 130px for a drawing.
 const beforeDrag = await evaluate(ws, 892, `JSON.stringify(document.querySelector('.exec-preview').clientHeight)`);
@@ -448,6 +510,7 @@ console.log(
     `       settings tabs rendered — ${panels.join(', ')} (characters)\n` +
     `       consent granted in-app — palette ${before.types} -> ${consented.types} types, ${consented.reviewTypes} from the plugin\n` +
     `       ${(run.final ?? '').trim()}\n` +
-    `       floor plan drew — ${plan.rooms} rooms, ${plan.walls} walls, ${plan.labels} labels; panel resized ${beforeDrag} -> ${afterDrag.preview}px\n` +
+    `       floor plan drew — ${plan.rooms} rooms, ${plan.walls} walls, ${plan.labels} labels\n` +
+    `       storey switcher — ${storeys.buttons} storeys, switching to 4 redrew the plan; panel resized ${beforeDrag} -> ${afterDrag.preview}px\n` +
     `       saved through the UI — clicked Save on the DXF exporter, ${savedBytes.byteLength} bytes of valid R12 landed on disk`,
 );

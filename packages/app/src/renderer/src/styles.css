@@ -647,6 +647,33 @@ body {
   pointer-events: none;
 }
 
+/* Storey switcher. Numbered from one, because that is how people count
+   floors, while the plan data counts from zero. */
+.plan-storeys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.plan-storey {
+  min-width: 22px;
+  padding: 2px 6px;
+  background: transparent;
+  color: var(--ink-faint);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+}
+.plan-storey:hover { color: var(--ink-dim); border-color: var(--line); }
+.plan-storey.is-current {
+  color: var(--bg0);
+  background: var(--blueprint);
+  border-color: var(--blueprint);
+}
+
 .plan-caption {
   font-size: 10px;
   color: var(--ink-faint);

@@ -60,7 +60,7 @@ doing that; it is the repo's navigation system.
 
 ---
 
-## 3. The five commands CI runs
+## 3. The six commands CI runs
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) is one job that runs, in
 this order, exactly what you can run by hand from the repo root. That is on
@@ -75,10 +75,24 @@ pnpm --filter @archspace/plugin-aec-review build   # 3
 pnpm test                                          # 4
 pnpm cli run packages/app/resources/concept-compliance.archspace.yaml \
   --trust-plugin aec-review                        # 5
+pnpm build                                         # 6
 ```
 
-All five green is the definition of done. Two of the steps look misplaced until
+All six green is the definition of done. Three of the steps look misplaced until
 you know why they are there.
+
+### Why the app build is a gate and not just a packaging step
+
+Neither `lint` nor `typecheck` compiles the app. That is not theoretical: a JSX
+comment misplaced inside a `&&` expression passed both and failed esbuild, and
+with no build in CI the first sign of it would have been a release tag. `pnpm
+build` is the thing every other gate is a proxy for.
+
+It also runs `packages/app/scripts/check-bundle.mjs`, which fails the build if
+any `@archspace/*` specifier survives into `out/main` or `out/preload`.
+electron-vite externalises workspace dependencies by default, which once
+produced an app that passed every other command here and then would not launch
+at all.
 
 ### Why the plugin build comes before the tests
 
@@ -166,16 +180,21 @@ zustand selector made React give up with error #185 and mount nothing at all.
 
 Neither is exotic, and nothing caught either. `tsc` reads source and never
 looks at the bundle. The unit tests never construct a window. The headless CLI
-runs through `tsx`, a loader with none of Electron's constraints. **The five CI
-commands do not launch Electron**, so a product that could not start scored a
-perfect run.
+runs through `tsx`, a loader with none of Electron's constraints. **No CI
+command launches Electron**, so a product that could not start scored a perfect
+run.
 
 Two things close part of that gap, and both run in seconds:
 
 ```bash
-pnpm --filter @archspace/app build   # includes scripts/check-bundle.mjs
+pnpm build                           # includes scripts/check-bundle.mjs (now a CI gate, §3)
 pnpm --filter @archspace/app smoke   # launches the app, asserts the UI rendered
 ```
+
+`smoke` refuses to run when `out/` is older than `src/`, because it launches
+whatever is in `out/` — so a failed build would otherwise have it report a pass
+for the previous one. That happened once; a stale pass is worse than no test,
+because it is trusted.
 
 `check-bundle.mjs` fails the build if an `@archspace/*` specifier survives into
 `out/main` or `out/preload` — that is the first bug, caught statically.
@@ -437,7 +456,7 @@ in-process `require()` — that was rejected outright.
 ## 7. Pull requests
 
 - **Branch off `main`.** CI runs on every PR and on pushes to `main`.
-- **Run all five commands (§3) before pushing.** They take well under a minute
+- **Run all six commands (§3) before pushing.** They take well under a minute
   in total on a warm install; CI runs on macOS because that is the shipped
   platform (ADR-0001).
 - **One concern per PR.** A serializer change that dirties many golden files is

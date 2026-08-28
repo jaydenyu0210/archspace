@@ -147,7 +147,7 @@ function PreviewBlock({ preview }: { preview: OutputPreview }) {
         </div>
       )}
       {p.kind === 'plan' && (
-        <PlanView level={p.level} levelCount={p.levelCount} site={p.site} />
+        <PlanView levels={p.levels} levelCount={p.levelCount} site={p.site} />
       )}
       {p.kind === 'asset' && <AssetPreview asset={p.ref} />}
       {p.kind === 'empty' && <div className="preview-note">no value</div>}

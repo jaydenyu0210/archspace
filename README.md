@@ -175,7 +175,7 @@ Needs [Node](https://nodejs.org) (version in `.nvmrc`) and
 ```sh
 pnpm install
 pnpm dev      # run the app
-pnpm test     # 1100 tests across 12 packages
+pnpm test     # 1104 tests across 12 packages
 ```
 
 Run a workflow with no UI — a real feature, not a test harness:
@@ -195,7 +195,7 @@ pnpm dist        # macOS .dmg + .zip
 pnpm dist:win    # Windows installer + zips
 ```
 
-**[CONTRIBUTING.md](CONTRIBUTING.md)** has the rest: the five commands CI runs,
+**[CONTRIBUTING.md](CONTRIBUTING.md)** has the rest: the six commands CI runs,
 the house rules, and the traps worth knowing before you lose an afternoon to
 one. Design decisions live in [docs/adr/](docs/adr/) — the reasoning, and what
 was rejected, is written down.

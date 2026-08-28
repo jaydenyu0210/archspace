@@ -89,3 +89,16 @@ jobs:
             pnpm cli run "$workflow" --trust-plugin aec-review
             echo "::endgroup::"
           done
+
+      # NEITHER lint NOR typecheck compiles the app. That is not a theoretical
+      # gap: a misplaced JSX comment inside a `&&` expression passed both and
+      # failed esbuild, and would have reached a release tag as the first sign
+      # of trouble. `pnpm build` is what every other gate above is a proxy for.
+      #
+      # It also runs scripts/check-bundle.mjs, which fails the build if any
+      # `@archspace/*` specifier survives into out/main or out/preload. That
+      # check exists because electron-vite externalises workspace dependencies
+      # by default, which produced an app that passed every test in this file
+      # and then would not launch at all. Until now it only ever ran locally.
+      - name: Build the app
+        run: pnpm build
