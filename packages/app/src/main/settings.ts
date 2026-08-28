@@ -36,6 +36,7 @@ import {
   type McpConfig,
 } from '@archspace/mcp-host';
 import type { OAuthStoreSlot, PluginConsentState, SecretKeyInfo } from '../shared/protocol';
+import { parsePluginConsent, type ParsedConsent } from './consent';
 
 const SECRETS_FILENAME = 'secrets.json';
 const PLUGIN_CONSENT_FILENAME = 'plugins.json';
@@ -125,24 +126,20 @@ export async function saveAiConfig(config: AiGatewayConfig): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function loadPluginConsent(): Promise<PluginConsentState> {
-  const text = await readIfPresent(join(userDataDir(), PLUGIN_CONSENT_FILENAME));
-  if (text === null) return {};
-  try {
-    const parsed: unknown = JSON.parse(text);
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
-    const out: PluginConsentState = {};
-    for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof value !== 'object' || value === null) continue;
-      const v = value as { enabled?: unknown; permissions?: unknown };
-      out[id] = {
-        enabled: v.enabled !== false,
-        permissions: Array.isArray(v.permissions) ? v.permissions.filter((p): p is string => typeof p === 'string') : [],
-      };
-    }
-    return out;
-  } catch {
-    return {};
-  }
+  return (await loadPluginConsentWithIssues()).consent;
+}
+
+/**
+ * The same read, with what could not be read.
+ *
+ * Kept beside the plain version rather than replacing it because most callers
+ * only need the state — but a caller that is about to tell the user which
+ * plugins are consented needs to be able to say "and this file was damaged",
+ * or a consent record that silently reset looks exactly like one the user
+ * forgot they had granted.
+ */
+export async function loadPluginConsentWithIssues(): Promise<ParsedConsent> {
+  return parsePluginConsent(await readIfPresent(join(userDataDir(), PLUGIN_CONSENT_FILENAME)));
 }
 
 export async function savePluginConsent(state: PluginConsentState): Promise<void> {

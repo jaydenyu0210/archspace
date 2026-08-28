@@ -373,12 +373,19 @@ export function PluginsPanel(props: SettingsPanelProps) {
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
   const [panelBusy, setPanelBusy] = useState<'install' | 'reload' | null>(null);
   const [panelError, setPanelError] = useState<string | null>(null);
+  /** Records in `plugins.json` this machine could not read — shown, because a
+   *  consent record that silently reset is indistinguishable from one the user
+   *  forgot they had granted (ADR-0008 §2). */
+  const [consentIssues, setConsentIssues] = useState<string[]>([]);
 
   const loadConsent = useCallback(() => {
     setConsentError(null);
     void window.archspace
       .getPluginConsent()
-      .then(setConsent)
+      .then(({ consent: loaded, issues }) => {
+        setConsent(loaded);
+        setConsentIssues(issues);
+      })
       .catch((err: unknown) => setConsentError(err instanceof Error ? err.message : String(err)));
   }, []);
 
@@ -394,7 +401,7 @@ export function PluginsPanel(props: SettingsPanelProps) {
 
   /** Every consent write is read-modify-write against main's live copy. */
   const writeConsent = async (mutate: (current: PluginConsentState) => PluginConsentState): Promise<void> => {
-    const current = await window.archspace.getPluginConsent();
+    const { consent: current } = await window.archspace.getPluginConsent();
     const next = mutate(current);
     const result = await window.archspace.setPluginConsent(next);
     if (!result.ok) throw new Error(result.error);
@@ -481,7 +488,7 @@ export function PluginsPanel(props: SettingsPanelProps) {
       // what it just wrote and put it back through `setPluginConsent`, which
       // does push — otherwise the engine would keep reporting the freshly
       // installed plugin as un-reviewed and this panel would repeat that.
-      const current = await window.archspace.getPluginConsent();
+      const { consent: current } = await window.archspace.getPluginConsent();
       const written = await window.archspace.setPluginConsent(current);
       setConsent(current);
       requestEngineStatus();
@@ -558,6 +565,23 @@ export function PluginsPanel(props: SettingsPanelProps) {
         )}
 
         {panelError !== null && <div className="settings-note settings-note--error">{panelError}</div>}
+
+        {/* The file was readable but part of it was not. Distinct from
+            `consentError` above, which means nothing could be read: here the
+            panel is usable and some plugins have quietly returned to
+            needs-consent, which the user has to be told or they will read it as
+            the app forgetting a decision they made. */}
+        {consentIssues.length > 0 && (
+          <div className="settings-note settings-note--error">
+            Part of the consent file could not be read, so those plugins are treated as un-reviewed. Grant them again
+            to fix the file.
+            <ul>
+              {consentIssues.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {consentError !== null && (
           <>

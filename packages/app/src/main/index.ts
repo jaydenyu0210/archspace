@@ -49,6 +49,7 @@ import {
   loadAiConfig,
   loadMcpConfig,
   loadPluginConsent,
+  loadPluginConsentWithIssues,
   mcpConfigPath,
   readOAuthSlot,
   saveAiConfig,
@@ -489,7 +490,7 @@ ipcMain.handle('plugins:uninstall', async (_e, id: string) => {
   if (result.ok) await pushConfig();
   return result;
 });
-ipcMain.handle('plugins:get-consent', () => loadPluginConsent());
+ipcMain.handle('plugins:get-consent', () => loadPluginConsentWithIssues());
 ipcMain.handle('plugins:set-consent', async (_e, state: PluginConsentState) => {
   try {
     await savePluginConsent(state);

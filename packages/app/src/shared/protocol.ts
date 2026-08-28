@@ -251,7 +251,14 @@ export interface ArchspaceBridge {
   installPlugin(): Promise<PluginInstallResult>;
   uninstallPlugin(id: string): Promise<SettingsResult>;
   /** Persisted enable/permission state; the engine applies it. */
-  getPluginConsent(): Promise<PluginConsentState>;
+  /**
+   * The consent on file, plus anything in `plugins.json` that could not be
+   * read. The issues travel WITH the value for the same reason the MCP and AI
+   * config issues do: the panel that renders a config is the place a person is
+   * actually looking when it matters. A consent record that silently reset
+   * looks exactly like one they forgot they had granted.
+   */
+  getPluginConsent(): Promise<{ consent: PluginConsentState; issues: string[] }>;
   setPluginConsent(state: PluginConsentState): Promise<SettingsResult>;
 
   /** Autodesk/Revit capability map and the MCP presets that are real. */

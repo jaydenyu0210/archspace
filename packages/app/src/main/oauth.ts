@@ -17,6 +17,7 @@
 import { shell } from 'electron';
 import { createServer, type Server } from 'node:http';
 import { OAUTH_REDIRECT_PORT, OAUTH_REDIRECT_URI } from '../shared/protocol';
+import { unopenableReason } from './external-url';
 
 export { OAUTH_REDIRECT_PORT, OAUTH_REDIRECT_URI };
 
@@ -52,6 +53,21 @@ let active: Server | null = null;
 export function authorize(server: string, authorizationUrl: string): Promise<AuthorizationOutcome> {
   if (active !== null) {
     return Promise.reject(new Error('Another MCP authorization is already in progress — finish or cancel it first.'));
+  }
+
+  // The URL comes from a remote server's OAuth discovery document, and it ends
+  // at `shell.openExternal`, which hands whatever it is given to the OS. That
+  // is how a scheme like `smb:` or a registered application handler becomes
+  // something a hostile — or merely compromised — MCP server can make this
+  // machine open, with no dialog, from a settings panel the user thought was
+  // about signing in. Only the two schemes an authorization endpoint may
+  // actually use get through (RFC 8252 §7.3; OAuth 2.1 requires https, and
+  // loopback http is the exception a local dev server needs).
+  const rejection = unopenableReason(authorizationUrl);
+  if (rejection !== null) {
+    return Promise.reject(
+      new Error(`MCP server "${server}" asked to open ${rejection}. Nothing was opened. Check the server's address.`),
+    );
   }
 
   return new Promise<AuthorizationOutcome>((resolve, reject) => {
