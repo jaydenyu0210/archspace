@@ -36,6 +36,29 @@ pnpm cli run packages/app/resources/concept-compliance.archspace.yaml --trust-pl
 The second one is the whole product with the shell taken off. Get used to it —
 it is also the CI gate (§3).
 
+### If `pnpm dev` says Electron is not installed
+
+The `electron` npm package is a few kilobytes of JavaScript; the ~100 MB runtime
+is fetched by its own postinstall step. When that step does not complete,
+`pnpm install` still reports success and the failure surfaces much later as
+`Error: Electron uninstall` from deep inside electron-vite — which names neither
+the cause nor the fix, and sends people looking for an uninstall they never ran.
+
+`pnpm dev` and `pnpm smoke` now check for the binary first and say this instead.
+The fix:
+
+```sh
+pnpm rebuild electron
+node node_modules/electron/install.js   # if that fails: shows the real error
+```
+
+The usual causes are a proxy, a dropped connection, or antivirus quarantining
+the download. Behind a corporate proxy set `HTTPS_PROXY`, or point Electron at a
+mirror with `ELECTRON_MIRROR`, before retrying.
+
+Note that `pnpm build`, `pnpm test` and `pnpm cli` all work without the binary —
+only launching the app needs it.
+
 ---
 
 ## 2. ADR-first
@@ -45,7 +68,7 @@ ADRs name the alternatives that were rejected and why they lost, so "obvious"
 improvements are usually decisions that were already made in the other
 direction — deliberately.
 
-- Start at [`docs/adr/README.md`](docs/adr/README.md): thirteen accepted ADRs
+- Start at [`docs/adr/README.md`](docs/adr/README.md): sixteen accepted ADRs
   with a one-line summary each.
 - If your change contradicts an accepted ADR, that is not a blocker — it is a
   **new ADR**. Write it in the same MADR-lite shape
