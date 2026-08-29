@@ -103,7 +103,32 @@ function enginePaths(): EnginePaths {
 // Engine supervision
 // ---------------------------------------------------------------------------
 
+/**
+ * Restart policy.
+ *
+ * A crash the engine recovers from is one restart and nobody notices — that is
+ * the containment ADR-0008 buys, and it is the common case. A crash it cannot
+ * recover from is a tight loop: the exit handler forked immediately, with no
+ * delay and no ceiling, so an engine that dies during startup (a bad build, a
+ * module that will not load, a port it cannot open) spawned processes as fast
+ * as the OS would allow, for as long as the app was open.
+ *
+ * So: back off, and stop. The backoff is what makes a transient fault survivable
+ * without a fork storm; the ceiling is what turns a permanent fault into a
+ * message instead of a hot CPU. `RESTART_WINDOW_MS` is what separates the two —
+ * an engine that has stayed up for a while and then dies is having its first
+ * crash, not its sixth, and the count resets.
+ */
+const MAX_RESTARTS = 5;
+const RESTART_BACKOFF_MS = [250, 500, 1000, 2000, 4000];
+const RESTART_WINDOW_MS = 60_000;
+
+let restartCount = 0;
+let lastSpawnAt = 0;
+let restartTimer: NodeJS.Timeout | null = null;
+
 function spawnEngine(): void {
+  lastSpawnAt = Date.now();
   engine = utilityProcess.fork(join(__dirname, 'engine.js'), [], {
     serviceName: 'archspace-engine',
   });
@@ -115,14 +140,35 @@ function spawnEngine(): void {
     // in-flight run (if any) is dead (§3.2). Anything waiting on the old
     // process is dead with it, and must be told so rather than left hanging.
     rejectPendingEngineCalls('the engine stopped before it could answer');
-    // `spawnEngine` opens the control channel itself, so calling
-    // `connectControl` again here made a SECOND MessageChannel on every
-    // restart: `controlPort` was overwritten and the first channel leaked with
-    // its listener still attached, on both sides. One per restart, and the
-    // restart path is exactly the one that runs repeatedly when the engine is
-    // unhealthy.
-    spawnEngine();
-    win?.webContents.send('engine:restarted', code);
+
+    // An engine that ran for a while and then died is on its first crash, not
+    // its sixth. Only deaths that keep happening count towards the ceiling.
+    if (Date.now() - lastSpawnAt > RESTART_WINDOW_MS) restartCount = 0;
+
+    if (restartCount >= MAX_RESTARTS) {
+      // Said once, plainly, instead of looping. There is no in-app recovery
+      // from this: the engine is what runs everything.
+      console.error(
+        `[main] the engine has exited ${restartCount} times in a row (last: ${String(code)}); not restarting again`,
+      );
+      win?.webContents.send('engine:gave-up', restartCount);
+      return;
+    }
+
+    const delay = RESTART_BACKOFF_MS[Math.min(restartCount, RESTART_BACKOFF_MS.length - 1)];
+    restartCount++;
+    // `spawnEngine` opens the control channel itself. Calling `connectControl`
+    // again after it made a SECOND MessageChannel on every restart:
+    // `controlPort` was overwritten and the first channel leaked with its
+    // listener still attached, on both sides — one per restart, on the path
+    // that runs repeatedly when the engine is unhealthy.
+    if (restartTimer !== null) clearTimeout(restartTimer);
+    restartTimer = setTimeout(() => {
+      restartTimer = null;
+      if (quitting) return;
+      spawnEngine();
+      win?.webContents.send('engine:restarted', code);
+    }, delay);
   });
   connectControl();
 }

@@ -22,6 +22,9 @@ const bridge: ArchspaceBridge = {
   onEngineRestarted: (cb) => {
     ipcRenderer.on('engine:restarted', () => cb());
   },
+  onEngineGaveUp: (cb) => {
+    ipcRenderer.on('engine:gave-up', (_e, restarts: number) => cb(restarts));
+  },
   setDirty: (dirty) => ipcRenderer.send('app:set-dirty', dirty),
 
   platform: () => ipcRenderer.invoke('app:platform'),

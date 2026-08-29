@@ -291,3 +291,80 @@ layout:
     if (reparsed.ok) expect(reparsed.doc.layout).toEqual({ n_aaa111: { x: 7, y: 9 } });
   });
 });
+
+/**
+ * A config that is a YAML alias.
+ *
+ * `config: *shared` is what a hand-written file uses to give two nodes one set
+ * of params, and it is legal YAML that `parseWorkflow` reads correctly:
+ * `extractWorkflow` goes through `toJS()`, which resolves the alias, so the
+ * parsed node has every key.
+ *
+ * `saveWorkflow` then wrote only the keys that had CHANGED into a map it had
+ * just emptied, because an alias node is not a `YAMLMap` and the branch for
+ * "not a map" replaced it with `{}`. Change one param on such a node and the
+ * others were gone — silently, from an ordinary save, with the next run using
+ * different values than the last one.
+ *
+ * Materialising the alias into a concrete map is correct and unavoidable here:
+ * once one of the two nodes is edited independently they are no longer the same
+ * config. Ending the sharing is the user's own instruction. Ending it *and*
+ * dropping the values is the bug.
+ */
+describe('a node whose config is a YAML alias', () => {
+  const shared = `archspace: 1
+kind: workflow
+meta:
+  name: Alias
+requires:
+  mcp: []
+  ai: []
+  plugins: []
+x-defaults: &shared
+  seed: 7
+  latency: 0
+  width: 900
+nodes:
+  - id: n_aaa111
+    type: aec.generate_floor_plan
+    version: 1
+    config: *shared
+  - id: n_bbb222
+    type: aec.generate_floor_plan
+    version: 1
+    config: *shared
+edges: []
+layout: {}
+`;
+
+  it('parses with every key the anchor carries', () => {
+    const parsed = parseWorkflow(shared);
+    if (!parsed.ok) throw new Error('an alias is legal YAML and must parse');
+    expect(parsed.doc.nodes[0].config).toEqual({ seed: 7, latency: 0, width: 900 });
+  });
+
+  it('keeps the unchanged keys when one of them is edited', () => {
+    const parsed = parseWorkflow(shared);
+    if (!parsed.ok) throw new Error('parse failed');
+    const edited: WorkflowDoc = {
+      ...parsed.doc,
+      nodes: parsed.doc.nodes.map((n) => (n.id === 'n_aaa111' ? { ...n, config: { ...n.config, seed: 8 } } : n)),
+    };
+
+    const saved = saveWorkflow(parsed.source, edited);
+    const reparsed = parseWorkflow(saved);
+    expect(reparsed.ok).toBe(true);
+    if (!reparsed.ok) return;
+    expect(reparsed.doc.nodes[0].config).toEqual({ seed: 8, latency: 0, width: 900 });
+    // The node nobody touched still follows the anchor, untouched.
+    expect(reparsed.doc.nodes[1].config).toEqual({ seed: 7, latency: 0, width: 900 });
+    expect(saved).toContain('*shared');
+  });
+
+  it('leaves the file byte-identical when nothing changed', () => {
+    // The alias must not be materialised by merely opening and saving.
+    const parsed = parseWorkflow(shared);
+    if (!parsed.ok) throw new Error('parse failed');
+    expect(saveWorkflow(parsed.source, parsed.doc)).toBe(shared);
+  });
+});

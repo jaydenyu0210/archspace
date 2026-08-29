@@ -380,7 +380,23 @@ function patchConfig(
     pair = new Pair(ydoc.createNode('config'), ydoc.createNode({}));
     nodeMap.items.splice(insertIndexFor(nodeMap, 'config', NODE_ORDER), 0, pair);
   } else if (!isMap(pair.value)) {
-    pair.value = ydoc.createNode({});
+    // Seeded with the config that is actually there, NOT with `{}`.
+    //
+    // A `config:` whose CST node is not a map is almost always a YAML alias —
+    // `config: *shared`, a hand-written file giving two nodes one set of
+    // params. `extractWorkflow` reads the document through `toJS()`, which
+    // resolves the alias, so `current` holds every key the node really has;
+    // but `changedKeys` holds only the one the user just edited, and replacing
+    // the alias with an empty map meant the other keys were never written
+    // again. Change one param on such a node and the rest were gone — from a
+    // save, silently, with the run afterwards using different values than the
+    // run before.
+    //
+    // Materialising the alias into a concrete map does end the sharing, and
+    // that is the honest reading of "change this node's seed": the two nodes
+    // are no longer the same config. What is not defensible is ending the
+    // sharing AND dropping the values.
+    pair.value = newValueNode(ydoc, current) as typeof pair.value;
   }
   const cfg = pair.value as YAMLMap;
   for (const k of changedKeys) {

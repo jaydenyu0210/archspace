@@ -118,3 +118,81 @@ describe('caching (pure nodes only)', () => {
     expect(JSON.parse((preview as { json: string }).json)).toEqual({ a: 1 }); // not 999
   });
 });
+
+/**
+ * The bound (§7.3).
+ *
+ * "Session-scoped" in the desktop app means the life of the process: the engine
+ * child builds one cache at startup and every run shares it, so an unbounded
+ * Map grew for as long as the app was open. And the entries are not small —
+ * §7.6 sends bulk bytes as an `AssetRef`, but a floor plan is a `json` wire
+ * value and a six-storey one is about 261,000 characters, so a handful of
+ * parameter sweeps is megabytes of memo nobody will ask for again.
+ *
+ * LRU rather than FIFO because the whole point of the memo is the second press
+ * of Run on a graph whose upstream did not change: the entries a user is
+ * iterating on are exactly the ones they keep reading.
+ */
+describe('the cache is bounded', () => {
+  const outputs = (v: string) => ({ out: v });
+
+  it('evicts the least recently used entry, not the oldest one', () => {
+    const cache = createRunCache(3);
+    cache.set('a', outputs('a'));
+    cache.set('b', outputs('b'));
+    cache.set('c', outputs('c'));
+
+    // Reading 'a' makes it the newest, so 'b' is now the least recent.
+    expect(cache.get('a')).toEqual(outputs('a'));
+    cache.set('d', outputs('d'));
+
+    expect(cache.size).toBe(3);
+    expect(cache.get('b')).toBeUndefined();
+    expect(cache.get('a')).toEqual(outputs('a'));
+    expect(cache.get('c')).toEqual(outputs('c'));
+    expect(cache.get('d')).toEqual(outputs('d'));
+  });
+
+  it('never exceeds its limit, however many entries are written', () => {
+    const cache = createRunCache(8);
+    for (let i = 0; i < 500; i++) cache.set(`k${i}`, outputs(String(i)));
+    expect(cache.size).toBe(8);
+    // The most recent survive.
+    expect(cache.get('k499')).toEqual(outputs('499'));
+    expect(cache.get('k0')).toBeUndefined();
+  });
+
+  it('re-writing a key refreshes it rather than adding a second entry', () => {
+    const cache = createRunCache(2);
+    cache.set('a', outputs('1'));
+    cache.set('b', outputs('b'));
+    cache.set('a', outputs('2'));
+    cache.set('c', outputs('c'));
+
+    expect(cache.size).toBe(2);
+    // 'b' was the least recent once 'a' was rewritten.
+    expect(cache.get('b')).toBeUndefined();
+    expect(cache.get('a')).toEqual(outputs('2'));
+  });
+
+  it('refuses a nonsensical limit rather than holding nothing', () => {
+    for (const limit of [0, -5, 0.4]) {
+      const cache = createRunCache(limit);
+      cache.set('a', outputs('a'));
+      expect(cache.get('a'), `limit ${limit}`).toEqual(outputs('a'));
+      expect(cache.size, `limit ${limit}`).toBe(1);
+    }
+  });
+
+  it('still isolates callers from what it holds, after an eviction pass', () => {
+    // The clone-on-both-sides invariant must survive the LRU bookkeeping.
+    const cache = createRunCache(2);
+    const written = { out: 'v', nested: { n: 1 } };
+    cache.set('a', written);
+    written.nested.n = 99;
+    const read = cache.get('a') as typeof written;
+    expect(read.nested.n).toBe(1);
+    read.nested.n = 42;
+    expect((cache.get('a') as typeof written).nested.n).toBe(1);
+  });
+});

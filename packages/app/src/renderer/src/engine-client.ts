@@ -159,6 +159,21 @@ export function initEngineClient(): void {
     window.archspace.requestEnginePort();
   });
 
+  window.archspace.onEngineGaveUp((restarts) => {
+    // The end of the road: main has stopped restarting. Requesting a port
+    // again would hang forever, so the one useful thing left is to say so.
+    useStore.getState().engineDown();
+    port = null;
+    failPending('The engine stopped and could not be restarted.');
+    useStore
+      .getState()
+      .notify(
+        'error',
+        `The engine stopped ${restarts} times in a row and is no longer being restarted. ` +
+          'Nothing can run until Archspace is reopened.',
+      );
+  });
+
   window.archspace.requestEnginePort();
 }
 

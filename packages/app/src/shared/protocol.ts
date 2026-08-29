@@ -227,6 +227,14 @@ export interface ArchspaceBridge {
   onMenu(cb: (action: MenuAction) => void): void;
   /** Engine child crashed and was restarted; any in-flight run is dead. */
   onEngineRestarted(cb: () => void): void;
+  /**
+   * The engine died repeatedly and main has stopped restarting it.
+   *
+   * Distinct from `onEngineRestarted`, which means "it is coming back": this
+   * one means it is not, and the app can do nothing further on its own. Said
+   * once rather than looped, which is the whole reason the ceiling exists.
+   */
+  onEngineGaveUp(cb: (restarts: number) => void): void;
   setDirty(dirty: boolean): void;
 
   platform(): Promise<PlatformInfo>;
