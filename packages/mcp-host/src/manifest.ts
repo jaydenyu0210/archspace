@@ -185,11 +185,24 @@ function toParamProperty(name: string, raw: unknown): JsonSchemaProperty {
   return prop;
 }
 
-/** Free-text and JSON arguments get room to breathe; enums pick themselves. */
+/**
+ * Free-text arguments get room to breathe; enums pick themselves.
+ *
+ * No hint for `object` or `array`, though they are the arguments that would
+ * most obviously want a big box. The inspector has no control for a structured
+ * param and deliberately will not grow one — `ParamField`'s header explains
+ * why at length: an editable control seeded with a lossy rendering is how a
+ * user destroys a value by looking at it. So it renders those read-only and
+ * says to wire them from another node instead, which promotion (ADR-0017) now
+ * makes a real instruction.
+ *
+ * Emitting `widget: 'textarea'` for them therefore described an editor that
+ * does not exist, in a manifest a plugin author reads to learn what the hints
+ * mean. A hint nothing honours is worse than none.
+ */
 function paramWidget(type: string | undefined, enumValues: unknown): { widget: 'textarea' | 'select'; rows?: number } | null {
   if (Array.isArray(enumValues) && enumValues.length > 0) return { widget: 'select' };
   if (type === 'string') return { widget: 'textarea', rows: 3 };
-  if (type === 'object' || type === 'array') return { widget: 'textarea', rows: 4 };
   return null;
 }
 

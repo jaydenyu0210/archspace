@@ -47,17 +47,27 @@ export function ParamField(props: {
 
   let control: JSX.Element;
 
-  if (!isEditablePrimitive(value)) {
+  // Routed on the SCHEMA as well as on the value. A param declared `object` or
+  // `array` has no control here and never will — see the header — but while it
+  // was unset, `value` was `undefined`, which IS an editable primitive, so it
+  // fell past every branch to "Unsupported param type: object". That reads as a
+  // defect in the app rather than a shape this form does not edit, and it
+  // withheld the one thing that actually helps: the sentence below, which
+  // since ADR-0017 is a real instruction rather than a consolation.
+  const structuralType = schema.type === 'object' || schema.type === 'array';
+  if (structuralType || !isEditablePrimitive(value)) {
     // Shown, not edited, and shown as what it actually is. The alternative —
     // an editable control seeded with a lossy rendering — is how the value
     // gets destroyed by someone who only meant to look at it.
     return (
       <div className="field">
         <label className="field-label">{label}</label>
-        <pre className="field-input field-textarea mono field-structured">{JSON.stringify(value, null, 2)}</pre>
+        <pre className="field-input field-textarea mono field-structured">
+          {value === undefined ? '(not set)' : JSON.stringify(value, null, 2)}
+        </pre>
         <div className="field-desc">
-          This parameter holds structured data, which this form cannot edit without
-          replacing it. Edit it in the workflow file, or wire it from another node.
+          This parameter holds structured data, which this form cannot edit without replacing it. Edit it in the
+          workflow file, or expose it as an input port and wire it from another node.
         </div>
       </div>
     );

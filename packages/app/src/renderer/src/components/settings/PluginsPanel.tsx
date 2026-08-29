@@ -478,7 +478,14 @@ export function PluginsPanel(props: SettingsPanelProps) {
     setPanelError(null);
     void (async () => {
       const result = await window.archspace.installPlugin();
-      if (result.cancelled === true) return;
+      // A cancel usually has nothing to say. It has something to say when the
+      // rollback failed: the plugin is unpacked on disk and only the user can
+      // remove it, so "cancelled, and here is what is left behind" has to
+      // reach them rather than being swallowed with the cancel.
+      if (result.cancelled === true) {
+        if (result.error !== undefined) setPanelError(result.error);
+        return;
+      }
       if (!result.ok) {
         setPanelError(result.error ?? 'The install failed and the app was not told why.');
         return;

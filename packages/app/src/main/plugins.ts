@@ -18,7 +18,7 @@
  */
 import { dialog, type BrowserWindow } from 'electron';
 
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import {
   describePermission,
   installPluginFromPath,
@@ -98,8 +98,23 @@ export async function installPluginWithConsent(win: BrowserWindow): Promise<Plug
   });
 
   if (response !== 0) {
-    // Declining consent must leave the machine exactly as it was.
-    await removePluginDir(installed.id, userPluginsDir()).catch(() => {});
+    // Declining consent must leave the machine exactly as it was — and when
+    // the rollback cannot, saying "cancelled" is the one answer that is
+    // certainly wrong. The plugin is unpacked on disk, unconsented so it will
+    // not run, and invisible to a user who was told nothing happened. They are
+    // the only one who can delete it, so they have to be told where it is.
+    try {
+      await removePluginDir(installed.id, userPluginsDir());
+    } catch (err) {
+      return {
+        ok: false,
+        cancelled: true,
+        error:
+          `“${installed.manifest.displayName}” was not enabled, but its files could not be removed from ` +
+          `${join(userPluginsDir(), installed.id)}: ${err instanceof Error ? err.message : String(err)}. ` +
+          `It cannot run without consent — delete that folder to finish undoing the install.`,
+      };
+    }
     return { ok: false, cancelled: true };
   }
 

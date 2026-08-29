@@ -58,6 +58,23 @@ const TEXT_CAP = 16_000;
 const TABLE_ROW_CAP = 50;
 
 /**
+ * How many characters of table cells one preview may carry.
+ *
+ * A row cap alone bounds the wrong thing. §7.6's promise is that bulk data
+ * never reaches the renderer, and fifty rows of short cells and fifty rows of a
+ * megabyte each are the same number of rows — so a node whose table holds long
+ * text (an MCP tool returning documents, a review whose findings quote source)
+ * put megabytes on every `node:succeeded` event, which the renderer receives
+ * for every node of every run. The plan path already budgets bytes for exactly
+ * this reason; this is the same rule applied to the one shape that was still
+ * counted rather than measured.
+ *
+ * Matched to `TEXT_CAP` because a table preview and a text preview are the same
+ * promise about the same channel.
+ */
+const TABLE_CELL_BUDGET = TEXT_CAP;
+
+/**
  * How much plan geometry one preview may carry, counted in drawable items — a
  * polygon vertex, a wall, a door, an exit.
  *
@@ -201,10 +218,24 @@ export function previewValue(
   }
   if (parsed?.kind === 'primitive' && parsed.name === 'table' && isValueOfType(value, 'table')) {
     const table = value as { columns: { id: string; label?: string }[]; rows: Record<string, Value>[] };
+    // Rows are taken whole, and only while there is budget for them: half a
+    // row is not a row, and `totalRows` is what tells the UI it is looking at
+    // a window. The first row goes in whatever it costs, for the reason the
+    // plan budget gives — a preview that can decline to show anything is not
+    // a preview.
+    const rows: Record<string, Value>[] = [];
+    let spent = 0;
+    for (const row of table.rows) {
+      if (rows.length >= TABLE_ROW_CAP) break;
+      const cost = JSON.stringify(row)?.length ?? 0;
+      if (rows.length > 0 && spent + cost > TABLE_CELL_BUDGET) break;
+      rows.push(row);
+      spent += cost;
+    }
     return {
       kind: 'table',
       columns: table.columns.map((c) => ({ id: c.id, ...(c.label !== undefined ? { label: c.label } : {}) })),
-      rows: table.rows.slice(0, TABLE_ROW_CAP),
+      rows,
       totalRows: table.rows.length,
     };
   }

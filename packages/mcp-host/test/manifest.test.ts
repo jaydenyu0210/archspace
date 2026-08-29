@@ -311,10 +311,16 @@ describe('toolToManifest', () => {
     // and the constraints survive so the inspector form stays as rich as the
     // server made it.
     expect(props.limit).toEqual({ type: 'integer', minimum: 1, maximum: 500, title: 'Limit', 'x-archspace': { promotable: true } });
-    // An enum picks itself; free text and JSON get room to breathe.
+    // An enum picks itself; free text gets room to breathe.
     expect(props.category).toMatchObject({ type: 'string', description: 'Which category.', title: 'Category', 'x-archspace': { promotable: true, widget: 'select' } });
     expect(props.notes['x-archspace']).toEqual({ promotable: true, widget: 'textarea', rows: 3 });
-    expect(props.filter['x-archspace']).toEqual({ promotable: true, widget: 'textarea', rows: 4 });
+    // A structured argument gets NO widget hint. It used to get
+    // `textarea`/rows 4, describing an editor that does not exist: the
+    // inspector renders a structured param read-only on purpose
+    // (`ParamField`'s header says why), so the hint was read by nobody and
+    // misinformed the plugin author reading the manifest to learn what hints
+    // mean. Promotion is the real answer for those, and the form says so.
+    expect(props.filter['x-archspace']).toEqual({ promotable: true });
     expect(props.includeHidden).toEqual({ type: 'boolean', title: 'Include Hidden', 'x-archspace': { promotable: true } });
     // Every one of them, without exception: a tool argument is exactly the kind
     // of value a user wants to drive from an upstream node.

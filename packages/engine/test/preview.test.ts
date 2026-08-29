@@ -112,6 +112,72 @@ describe('output previews', () => {
   });
 });
 
+describe('a table preview is budgeted by bytes, not only by rows', () => {
+  /** N rows, each carrying `cellChars` characters of text. */
+  const tableOf = (rows: number, cellChars: number) => ({
+    columns: [{ id: 'c', label: 'Cell' }],
+    rows: Array.from({ length: rows }, (_, i) => ({ c: `${i}:${'x'.repeat(cellChars)}` })),
+  });
+
+  const previewOf = async (table: unknown) => {
+    const module = mod({
+      type: 'test.bigtable',
+      outputs: [{ id: 'out', type: 'table' }],
+      execute: async () => ({ out: table as Value }),
+    });
+    const { events } = await runSingle(module);
+    return ofType(events, 'node:succeeded')[0].outputPreviews[0].preview as {
+      kind: string;
+      rows: Record<string, Value>[];
+      totalRows: number;
+    };
+  };
+
+  it('carries every row of a small table', async () => {
+    const preview = await previewOf(tableOf(10, 20));
+    expect(preview.kind).toBe('table');
+    expect(preview.rows).toHaveLength(10);
+    expect(preview.totalRows).toBe(10);
+  });
+
+  it('stops at 50 rows when the rows are short', async () => {
+    const preview = await previewOf(tableOf(500, 10));
+    expect(preview.rows).toHaveLength(50);
+    expect(preview.totalRows).toBe(500);
+  });
+
+  it('stops well before 50 rows when the cells are large', async () => {
+    // The gap this closes: fifty rows of short cells and fifty rows of a
+    // megabyte each are the same number of rows, and §7.6 is a promise about
+    // bytes. The preview rides on every `node:succeeded` event.
+    const preview = await previewOf(tableOf(50, 5_000));
+    expect(preview.rows.length).toBeLessThan(50);
+    expect(preview.totalRows).toBe(50);
+    const bytes = JSON.stringify(preview.rows).length;
+    expect(bytes).toBeLessThan(25_000);
+  });
+
+  it('always carries at least one row, however large it is', async () => {
+    // A preview that can decline to show anything is not a preview — the same
+    // rule the plan budget follows for its first storey.
+    const preview = await previewOf(tableOf(3, 200_000));
+    expect(preview.rows).toHaveLength(1);
+    expect(preview.totalRows).toBe(3);
+  });
+
+  it('keeps rows whole, never half of one', async () => {
+    // A budget that truncated a cell would produce a preview that looks like
+    // data and is not. Each surviving row must be byte-for-byte the row the
+    // node produced.
+    const source = tableOf(40, 2_000);
+    const preview = await previewOf(source);
+    expect(preview.rows.length).toBeGreaterThan(0);
+    preview.rows.forEach((row, i) => {
+      expect(row).toEqual(source.rows[i]);
+    });
+  });
+});
+
 describe('node:log and node:progress', () => {
   it('includes log data only when its canonicalJson is <= 8000 chars', async () => {
     const module = mod({
