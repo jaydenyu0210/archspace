@@ -119,6 +119,25 @@ describe('unopenableReason', () => {
     expect(unopenableReason('not a url')).toBe('an address that is not a URL');
   });
 
+  it('is not fooled by the ways a hostname can be spelled', () => {
+    // These are the bypasses worth pinning, because each one relies on the
+    // check reading the raw string rather than the parsed hostname.
+    // `WHATWG URL` normalises all of them, and the guard reads `hostname`.
+    expect(unopenableReason('HTTPS://login.example.com/authorize')).toBeNull(); // scheme case
+    expect(unopenableReason('http://LOCALHOST:9000/a')).toBeNull(); // host case
+    expect(unopenableReason('http://127.0.0.1./a')).toBeNull(); // trailing dot
+    expect(unopenableReason('http://0177.0.0.1/a')).toBeNull(); // octal, still loopback
+    expect(unopenableReason('http://2130706433/a')).toBeNull(); // decimal, still loopback
+
+    // The classic: userinfo that LOOKS like the allowed host. The real host is
+    // evil.com, and a check that matched on the string would have let it past.
+    expect(unopenableReason('http://127.0.0.1@evil.example.com/a')).toContain('insecure');
+    expect(unopenableReason('http://localhost@evil.example.com/a')).toContain('insecure');
+    // Over https it is allowed, and correctly so — https is https whoever the
+    // userinfo names.
+    expect(unopenableReason('https://127.0.0.1@example.com/a')).toBeNull();
+  });
+
   it('says what was refused, because that is the whole value of refusing', () => {
     // "authorization failed" is not something a user can act on; "that server
     // asked to open an smb: address" is.
