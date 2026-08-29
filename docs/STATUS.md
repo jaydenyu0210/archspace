@@ -93,7 +93,19 @@ inspector display.
   an assertion.
 - **CI does not launch Electron**, which is how two launch-blocking bugs once
   shipped past a fully green run. `pnpm --filter @archspace/app smoke` closes
-  part of that gap by hand; see [CONTRIBUTING](../CONTRIBUTING.md) §3a.
+  part of that gap by hand; see [CONTRIBUTING](../CONTRIBUTING.md) §3a. It now
+  also covers the two things only a real window can answer — that a dropped
+  file does not navigate the app away, and that the promote button on the
+  inspector actually adds a port to the node card.
+- **No shipped example wires a promotion**, because no built-in node emits a
+  `number`: the only shape the current node set can demonstrate end to end is
+  text into a string param. Promotion itself is covered by the CLI suite (the
+  integration harness, ADR-0013) and by the smoke test; what is missing is a
+  workflow a new user opens and *sees* it in. A node with a scalar output would
+  close it.
+- **Migrations and document lint are unbuilt**, and `archspace: 2` is a hard
+  parse failure with no upgrade path. Survivable only because the format has
+  never changed — see the M1 note in [ARCHITECTURE §16](ARCHITECTURE.md).
 - No 3D/IFC preview and no published release — see the status table above.
 
 ---

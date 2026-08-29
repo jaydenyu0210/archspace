@@ -241,18 +241,29 @@ because it is trusted.
 what it saw:
 
 ```
-smoke: UI rendered — 4 panels, 18 node types in the palette
-       opened "Concept compliance check" with 6 nodes on the canvas
+smoke: UI rendered — 4 panels, 19 node types in the palette
+       opened "Concept compliance check" with 7 nodes on the canvas
        settings tabs rendered — mcp:1761, ai:3852, plugins:2466, autodesk:21240
-       consent granted in-app — palette 18 -> 25 types, 7 from the plugin
-       +4.55s run finished: succeeded — 6 complete, 0 failed, 0 skipped
+       consent granted in-app — palette 19 -> 26 types, 7 from the plugin
+       +4.59s run finished: succeeded — 7 complete, 0 failed, 0 skipped
+       floor plan drew — 27 rooms, 108 walls, 12 labels
+       storey switcher — 6 storeys, switching to 4 redrew the plan
+       saved through the UI — 401654 bytes of valid R12 landed on disk
+       refused to navigate — a dropped file was cancelled
+       promotion clicked — promoting file_name took the exporter 1 → 2 ports
 ```
 
 Each line is a chain no unit test can reach. The palette count is non-zero only
 if main spawned the engine child and the two agreed over a MessagePort. The
 consent line means the settings UI wrote a grant, the plugin host read it,
-spawned a process, loaded the plugin and pushed its node types back. The last
+spawned a process, loaded the plugin and pushed its node types back. The run
 line means the engine then ran a graph that depends on one of those nodes.
+
+The last two are here for a blunter reason: they are the only place those
+behaviours are tested at all. A dropped file navigating the window away, and a
+promote button that adds a port to a card, are both things that can only be
+answered by a window — and both were written after the code they cover was
+already merged and green.
 
 It uses a fresh `--user-data-dir` every time, which is both hygiene and
 correctness: the flow grants consent, and consent persists, so without
