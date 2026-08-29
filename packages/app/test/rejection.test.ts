@@ -106,3 +106,39 @@ describe('explainRejection', () => {
     expect(explainRejection([], [], [])).toBe('validation failed');
   });
 });
+
+/**
+ * A plugin's own error text is interpolated mid-sentence, and the sentence
+ * after it is not optional — so "failed to load: boom See Settings → Plugins."
+ * was what a user actually read. Adding a full stop unconditionally is the
+ * other half of the bug: plenty of error strings already end in one.
+ */
+describe('a plugin error quoted inside a sentence', () => {
+  const failedWith = (error: string | undefined): string =>
+    explainRejection(
+      [unknownType('n_a', 'aec.review.zoning')],
+      [node('n_a', 'aec.review.zoning')],
+      [plugin({ state: 'failed', nodeTypes: ['aec.review.zoning'], ...(error !== undefined ? { error } : {}) })],
+    );
+
+  it('ends the quoted error before the next sentence', () => {
+    const message = failedWith('boom');
+    expect(message).toContain('failed to load: boom. See Settings');
+    expect(message).not.toContain('boom See');
+  });
+
+  it('does not double the full stop when the error already has one', () => {
+    expect(failedWith('boom.')).toContain('failed to load: boom. See Settings');
+    expect(failedWith('boom.')).not.toContain('boom.. See');
+  });
+
+  it('handles the other terminators, and trailing whitespace', () => {
+    expect(failedWith('what?')).toContain('what? See Settings');
+    expect(failedWith('no!')).toContain('no! See Settings');
+    expect(failedWith('boom\n')).toContain('boom. See Settings');
+  });
+
+  it('still reads correctly when there is no error text at all', () => {
+    expect(failedWith(undefined)).toContain('failed to load. See Settings');
+  });
+});

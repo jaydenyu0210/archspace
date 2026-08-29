@@ -78,6 +78,10 @@ export interface RunUiState {
   rejectedIssues: ValidationIssue[];
 }
 
+/** How long an informational notice stays up. Warnings and errors do not
+ *  expire at all — see `notify`. */
+const NOTICE_TTL_MS = 5000;
+
 export interface Notice {
   id: number;
   kind: 'info' | 'warn' | 'error';
@@ -243,7 +247,14 @@ export const useStore = create<StoreState>((set, get) => ({
   notify: (kind, text) => {
     const id = ++noticeSeq;
     set((s) => ({ notices: [...s.notices.slice(-3), { id, kind, text }] }));
-    setTimeout(() => get().dismissNotice(id), 5000);
+    // Only `info` expires. `Notices.tsx` argues against a timeout because it
+    // "would hide the one message someone stepped away mid-run to miss" — and
+    // that argument is exactly right about a warning or an error, and exactly
+    // wrong about "Saved plan.archspace.yaml", which nobody needs on screen a
+    // minute later. The store used to time out all three, which made the
+    // component's stated reasoning false for the messages it was written about:
+    // "the engine is no longer being restarted" vanished after five seconds.
+    if (kind === 'info') setTimeout(() => get().dismissNotice(id), NOTICE_TTL_MS);
   },
   dismissNotice: (id) => set((s) => ({ notices: s.notices.filter((n) => n.id !== id) })),
 

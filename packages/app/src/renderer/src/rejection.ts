@@ -51,7 +51,7 @@ function pluginAdvice(plugin: InstalledPluginInfo): string | null {
     case 'disabled':
       return `The “${name}” plugin provides that node type and is switched off. Turn it back on in Settings → Plugins.`;
     case 'failed':
-      return `The “${name}” plugin provides that node type but failed to load${plugin.error !== undefined ? `: ${plugin.error}` : '.'} See Settings → Plugins.`;
+      return `The “${name}” plugin provides that node type but failed to load${plugin.error !== undefined ? `: ${sentence(plugin.error)}` : '.'} See Settings → Plugins.`;
     case 'incompatible':
       return `The “${name}” plugin provides that node type but was built for a different engine version. See Settings → Plugins.`;
     case 'loaded':
@@ -66,6 +66,19 @@ function pluginAdvice(plugin: InstalledPluginInfo): string | null {
  * node id to its type without parsing the message text), and `plugins` the
  * installed set as the engine last reported it.
  */
+/**
+ * End a quoted fragment so the sentence after it does not run on.
+ *
+ * A plugin's own error text is interpolated mid-sentence and then followed by
+ * "See Settings → Plugins." — with no separator, that read "failed to load:
+ * boom See Settings → Plugins." Adding a full stop unconditionally is the other
+ * half of the bug, because plenty of errors already end in one.
+ */
+function sentence(text: string): string {
+  const trimmed = text.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
 export function explainRejection(
   issues: readonly ValidationIssue[],
   nodes: readonly TypedNode[],
