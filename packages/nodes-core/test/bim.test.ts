@@ -14,7 +14,9 @@
  * elements rather than aggregated into their storey.
  */
 import { describe, expect, it } from 'vitest';
-import type { AssetRef } from '@archspace/node-sdk';
+import { createMemoryAssetStore, type AssetRef } from '@archspace/node-sdk';
+import { runNode } from '@archspace/node-sdk/testkit';
+import { generateBimModelNode } from '../src/index.js';
 import type { BimModelSummary, FloorPlanResult } from '../src/index.js';
 import { runPipeline, type PipelineRun } from './helpers.js';
 
@@ -247,5 +249,49 @@ describe('aec.generate_bim_model', () => {
 
     const allGuids = [...summary.spaces.map((s) => s.guid), ...summary.doors.map((d) => d.guid)];
     expect(new Set(allGuids).size).toBe(allGuids.length);
+  });
+});
+
+/**
+ * A storey with nothing physical in it.
+ *
+ * `IfcRelContainedInSpatialStructure.RelatedElements` is `SET [1:?]`, so an
+ * empty `()` is a schema violation rather than an empty relationship — and the
+ * `IfcRelAggregates` written two lines below it was already guarded on exactly
+ * that rule. One of the pair had the check.
+ *
+ * The plan generator does not produce such a storey, which is why the shipped
+ * example validates with 0 issues (ADR-0016). But this node takes a plan off a
+ * wire, a caller can hand it anything, and a file that fails validation is the
+ * single outcome that node's acceptance criterion exists to prevent.
+ */
+describe('a plan with an empty storey', () => {
+  it('omits the containment relationship rather than writing an empty set', async () => {
+    const run = await runPipeline();
+    const plan = structuredClone(run.plan.outputs.floor_plan as unknown as FloorPlanResult);
+    // A storey the plan carries but that holds nothing physical.
+    plan.levels.push({
+      ...plan.levels[0],
+      level: plan.levels.length,
+      rooms: [],
+      walls: [],
+      doors: [],
+      exits: [],
+    });
+
+    const assets = createMemoryAssetStore();
+    const bim = await runNode(generateBimModelNode, {
+      params: { mock_latency_ms: 0 },
+      inputs: { floor_plan: plan as never },
+      assets,
+    });
+    const text = new TextDecoder().decode(await assets.bytes(bim.outputs.model as AssetRef));
+
+    // The storey itself is still declared — it exists, it is simply empty.
+    expect((text.match(/=IFCBUILDINGSTOREY\(/g) ?? []).length).toBe(plan.levels.length);
+    // And no relationship claims to contain nothing.
+    expect(text).not.toMatch(/IFCRELCONTAINEDINSPATIALSTRUCTURE\([^)]*,\(\),/);
+    // The storeys that DO hold elements keep theirs.
+    expect((text.match(/=IFCRELCONTAINEDINSPATIALSTRUCTURE\(/g) ?? []).length).toBe(plan.levels.length - 1);
   });
 });

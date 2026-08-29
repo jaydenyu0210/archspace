@@ -420,13 +420,13 @@ and nowhere else.
 
 ## 8. Before the first release
 
-**The update feed now points somewhere real, but at a private repository.**
-`electron-builder.yml` names `jaydenyu0210/archspace`, and
-`packages/app/src/main/updates.ts` reads that feed — both halves that were
-missing are now present. But an update feed can only be read anonymously from a
-**public** repository, so auto-update will not reach anyone while this repo is
-private. Make it public, or point `publish` at a public mirror, before promising
-users updates.
+**The update feed points somewhere real, and the repository is now public.**
+`electron-builder.yml` names `jaydenyu0210/archspace`,
+`packages/app/src/main/updates.ts` reads that feed, and
+`gh repo view --json visibility` says PUBLIC — so the anonymous read an updater
+needs will work. What is left is that nothing has been published at it: the
+feed is readable and empty. This paragraph used to say the repository was
+private and that making it public was a precondition; that step is done.
 
 The `REPLACE-ME` guard in the `Decide how this run packages` step is retained
 even though the token is gone. It still **hard-fails** a signed tag build if a
@@ -452,11 +452,17 @@ was observed, not reasoned about:
   `Contents/Resources/resources`, and the first-party plugin with its built
   `dist/` under `Contents/Resources/plugins`.
 - **`icon.icns` is in the bundle.**
-- **The packaged app launches and works.** Driven over the DevTools Protocol:
-  the shell renders (toolbar, library, canvas, inspector), the palette holds
-  18 node types — which only happens if main spawned the engine child and the
-  two agreed over a MessagePort — and it opens the bundled example by name,
-  "Concept compliance check", six nodes on the canvas, no error notices.
+- **The packaged app launches and works.** Driven over the DevTools Protocol
+  against the built `.app`, re-observed 2026-08-28: the shell renders (toolbar,
+  library, canvas, inspector), the palette holds **19** node types — which only
+  happens if main spawned the engine child and the two agreed over a
+  MessagePort — and it opens the bundled example by name, "Concept compliance
+  check", **seven** nodes on the canvas, no error notices.
+
+  Re-run rather than re-read, because the numbers had drifted and the
+  main-process code underneath them had changed. That is the standing rule for
+  this section: it records observations, so an observation that no longer
+  matches the build is not edited to fit, it is taken again.
 
 ### What is still unproven
 
@@ -466,9 +472,10 @@ entire second half of this document:
 - No `codesign`, no `notarytool`, no stapling, no `spctl -a` on a clean
   machine — there is no Developer ID identity here.
 - No tag has been pushed, so `release.yml` has never run.
-- Auto-update has never fetched anything. The feed is real but the repository
-  is private, and a Releases feed is only anonymously readable from a public
-  one.
+- Auto-update has never fetched anything. The feed is real and the repository
+  is public, so it *would* be readable — there is simply nothing published at
+  it yet. (This bullet used to say the repository was private, which stopped
+  being true.)
 
 So: the packaging is verified, the *release* is not. The first tag will be the
 first time the signing half of this file is exercised.

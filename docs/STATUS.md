@@ -69,7 +69,7 @@ documents, which is a seam masquerading as a feature.
 | 3D / IFC preview (three.js + web-ifc, [ADR-0003](adr/0003-frontend-and-canvas.md)) | **Not built.** Designed, dependencies not even installed |
 | macOS packaging (`pnpm dist`) | **Real, and verified.** Produces a universal .dmg and .zip; the packaged app launches, renders, and opens the bundled example. Unsigned unless a Developer ID identity is present — see [docs/releasing.md](releasing.md) §8 for exactly what was observed |
 | Signing, notarization, Homebrew cask | **Not done.** No Developer ID identity, no tag pushed, so `release.yml` has never run |
-| Auto-update | **Wired, unproven.** Reads the GitHub Releases feed on launch and ships in the bundle; no release has ever exercised it, and a private repo's feed is not anonymously readable |
+| Auto-update | **Wired, unproven.** Reads the GitHub Releases feed on launch and ships in the bundle. The repository is public, so the anonymous read an updater needs would work — but nothing has ever been published at that feed, so no release has exercised any of it |
 | Windows packaging | **Builds; blocked on modern Windows** (ADR-0014). `pnpm dist:win` produces an unsigned NSIS installer and ZIPs for x64 + arm64, cross-packaged on macOS. The first real install attempt (2026-08-27) was refused by **Smart App Control** on Windows 11, which unlike SmartScreen offers no override — so on a clean Windows 11 machine the download is unusable, not merely warned about. Running from source works. Signing is the fix and is not done |
 | Linux packaging | **Deferred by decision** (ADR-0001); no package imports platform code |
 

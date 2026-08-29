@@ -325,11 +325,21 @@ export const generateBimModelNode: NodeModule<GenerateBimModelParams> = {
         );
         doors.push({ doorId: door.id, guid, level: level.level });
       }
-      add(
-        'IFCRELCONTAINEDINSPATIALSTRUCTURE',
-        'IfcRelContainedInSpatialStructure',
-        `${str(guidFor(`contained:${level.level}`))},$,$,$,(${containedRefs.map((r) => `#${r}`).join(',')}),#${storeyRef}`,
-      );
+      // Guarded like the aggregation below it, and for the same reason:
+      // `IfcRelContainedInSpatialStructure.RelatedElements` is `SET [1:?]`, so
+      // an empty `()` is a schema violation, not an empty relationship. A
+      // storey with no walls and no doors is not something the plan generator
+      // produces today — which is why the shipped example validates with 0
+      // issues (ADR-0016) — but the writer takes a plan off a wire and a
+      // caller can hand it anything, and a file that fails validation is the
+      // one outcome this node's acceptance criterion exists to prevent.
+      if (containedRefs.length > 0) {
+        add(
+          'IFCRELCONTAINEDINSPATIALSTRUCTURE',
+          'IfcRelContainedInSpatialStructure',
+          `${str(guidFor(`contained:${level.level}`))},$,$,$,(${containedRefs.map((r) => `#${r}`).join(',')}),#${storeyRef}`,
+        );
+      }
       if (spaceRefs.length > 0) {
         add(
           'IFCRELAGGREGATES',
