@@ -60,13 +60,6 @@ function pluginAdvice(plugin: InstalledPluginInfo): string | null {
 }
 
 /**
- * The message to show when the engine refuses a run.
- *
- * `issues` is the engine's verdict, `nodes` the current canvas (to map a failing
- * node id to its type without parsing the message text), and `plugins` the
- * installed set as the engine last reported it.
- */
-/**
  * End a quoted fragment so the sentence after it does not run on.
  *
  * A plugin's own error text is interpolated mid-sentence and then followed by
@@ -79,6 +72,13 @@ function sentence(text: string): string {
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
+/**
+ * The message to show when the engine refuses a run.
+ *
+ * `issues` is the engine's verdict, `nodes` the current canvas (to map a failing
+ * node id to its type without parsing the message text), and `plugins` the
+ * installed set as the engine last reported it.
+ */
 export function explainRejection(
   issues: readonly ValidationIssue[],
   nodes: readonly TypedNode[],

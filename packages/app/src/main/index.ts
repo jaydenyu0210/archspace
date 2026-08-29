@@ -22,6 +22,7 @@ import {
 } from 'electron';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { WorkflowDoc } from '@archspace/document';
 import type { AiGatewayConfig } from '@archspace/ai-gateway';
 import type { McpConfig } from '@archspace/mcp-host';
@@ -426,15 +427,38 @@ function createWindow(): void {
     win = null;
   });
 
-  // The window renders one document and never navigates. Saying so here is the
-  // backstop for every way a navigation can be started that is not a link the
-  // renderer chose to follow — a file dropped on the canvas is the one that
+  // The window renders one document and never navigates AWAY. Saying so here is
+  // the backstop for every way a navigation can be started that is not a link
+  // the renderer chose to follow — a file dropped on the canvas is the one that
   // actually happened, and it replaced the whole UI with a `file://` listing
   // that only quitting could undo. The renderer refuses the drop as well
   // (Canvas.tsx); this is the guarantee that does not depend on every future
   // drop target remembering to.
-  win.webContents.on('will-navigate', (event) => event.preventDefault());
-  win.webContents.on('will-frame-navigate', (event) => event.preventDefault());
+  //
+  // "Away" is the load-bearing word, and the first version of this guard did
+  // not have it: a blanket `preventDefault` also refuses the renderer
+  // RELOADING ITSELF, which is what Vite does when HMR cannot patch a change,
+  // so `pnpm dev` stopped picking up edits and looked like a broken build. The
+  // app's own document is always a permitted destination.
+  const isOwnDocument = (url: string): boolean => {
+    if (url === win?.webContents.getURL()) return true; // a reload
+    const dev = process.env['ELECTRON_RENDERER_URL'];
+    if (isDev && dev !== undefined && url.startsWith(dev)) return true;
+    try {
+      return !isDev && new URL(url).protocol === 'file:'
+        && new URL(url).pathname === pathToFileURL(join(__dirname, '../renderer/index.html')).pathname;
+    } catch {
+      return false;
+    }
+  };
+  const refuseNavigation = (event: Electron.Event, url: string): void => {
+    if (isOwnDocument(url)) return;
+    event.preventDefault();
+  };
+  win.webContents.on('will-navigate', refuseNavigation);
+  win.webContents.on('will-frame-navigate', (event) => {
+    refuseNavigation(event, event.url);
+  });
   // An MCP server names its own OAuth URL and a node's output can be any text,
   // so `window.open` is never the right way out of this app. Anything genuinely
   // external goes through `shell.openExternal` on the main side, where it is

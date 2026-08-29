@@ -189,17 +189,3 @@ export function promotableParams(manifest: NodeManifest): string[] {
     .filter(([name, schema]) => isPromotableSchema(schema) && isPromotableName(name) && !declared.has(name))
     .map(([name]) => name);
 }
-
-/**
- * The canonical form of a `promoted:` list: sorted, deduped.
- *
- * A set, written down. Sorting makes the encoding unique, so a hand-written
- * `[b, a]` and a UI-written `[a, b]` are the same document rather than two
- * documents that differ; `requires:` is the house precedent for a sorted list
- * (`packages/document/src/requires.ts`). It costs nothing in diff churn because
- * the extractor normalises both sides of a save's comparison, so a file with an
- * unsorted list is not rewritten until its promotions actually change.
- */
-export function canonicalPromoted(names: readonly string[]): string[] {
-  return [...new Set(names)].sort();
-}

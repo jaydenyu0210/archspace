@@ -55,25 +55,25 @@ export function ParamField(props: {
   // withheld the one thing that actually helps: the sentence below, which
   // since ADR-0017 is a real instruction rather than a consolation.
   const structuralType = schema.type === 'object' || schema.type === 'array';
-  if (structuralType || !isEditablePrimitive(value)) {
+  const structured = structuralType || !isEditablePrimitive(value);
+
+  if (structured) {
     // Shown, not edited, and shown as what it actually is. The alternative —
     // an editable control seeded with a lossy rendering — is how the value
     // gets destroyed by someone who only meant to look at it.
-    return (
-      <div className="field">
-        <label className="field-label">{label}</label>
-        <pre className="field-input field-textarea mono field-structured">
-          {value === undefined ? '(not set)' : JSON.stringify(value, null, 2)}
-        </pre>
-        <div className="field-desc">
-          This parameter holds structured data, which this form cannot edit without replacing it. Edit it in the
-          workflow file, or expose it as an input port and wire it from another node.
-        </div>
-      </div>
+    //
+    // Falls THROUGH to the common return rather than rendering its own field,
+    // because this branch's advice is "expose it as an input port and wire it"
+    // and the button that does that lives in the shared label. Returning early
+    // here put the instruction and the means to follow it on opposite sides of
+    // a `return` — the one param that most needs promotion was the one that
+    // could not be promoted.
+    control = (
+      <pre className="field-input field-textarea mono field-structured">
+        {value === undefined ? '(not set)' : JSON.stringify(value, null, 2)}
+      </pre>
     );
-  }
-
-  if (Array.isArray(schema.enum)) {
+  } else if (Array.isArray(schema.enum)) {
     control = (
       <select
         className="field-input"
@@ -168,6 +168,12 @@ export function ParamField(props: {
         <div className="field-note">Driven by a connected node. This value is the fallback if the wire is removed.</div>
       )}
       {control}
+      {structured && (
+        <div className="field-desc">
+          This parameter holds structured data, which this form cannot edit without replacing it. Edit it in the
+          workflow file, or expose it as an input port and wire it from another node.
+        </div>
+      )}
       {schema.description && <div className="field-desc">{schema.description}</div>}
     </div>
   );

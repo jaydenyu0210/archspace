@@ -12,7 +12,7 @@
  * entries verbatim (ADR-0004), and a user opening a colleague's workflow needs
  * to know that missing a plugin has not silently eaten their data.
  */
-import { isPromotableName, isPromotableSchema } from '@archspace/node-sdk/promotion';
+import { promotableParams } from '@archspace/node-sdk/promotion';
 import { driftedNodeIds } from '../drift';
 import { useStore } from '../store';
 import { ParamField } from './ParamField';
@@ -44,6 +44,13 @@ export function Inspector() {
   if (selected.length === 1) {
     const node = selected[0];
     const manifest = manifestByType[node.data.typeId];
+    // One answer to "which params can be promoted", from the same function the
+    // engine and the canvas use. The condition was written out here as well,
+    // which is how the promote-button test and the "none promotable" hint came
+    // to disagree: the hint checked two of the three clauses, so a node whose
+    // only promotable param collided with a declared input port offered no
+    // button AND no explanation.
+    const promotable = new Set(manifest === undefined ? [] : promotableParams(manifest));
     return (
       <aside className="inspector">
         <div className="panel-title">Properties</div>
@@ -72,9 +79,7 @@ export function Inspector() {
                 schema={prop}
                 value={node.data.config[key]}
                 onChange={(value) => updateParam(node.id, key, value)}
-                {...(isPromotableSchema(prop) &&
-                isPromotableName(key) &&
-                !manifest.inputs.some((p) => p.id === key)
+                {...(promotable.has(key)
                   ? {
                       promotion: {
                         promoted: node.data.promoted?.includes(key) ?? false,
@@ -88,15 +93,12 @@ export function Inspector() {
             {/* CONTRIBUTING's honesty rule: a panel with no promote buttons
                 anywhere reads as a broken feature rather than an absent one, so
                 say which it is. */}
-            {Object.keys(manifest.params.properties ?? {}).length > 0 &&
-              !Object.entries(manifest.params.properties ?? {}).some(
-                ([key, prop]) => isPromotableSchema(prop) && isPromotableName(key),
-              ) && (
-                <div className="panel-hint">
-                  None of this node&rsquo;s parameters can be exposed as an input port &mdash; its author has not
-                  marked any promotable.
-                </div>
-              )}
+            {Object.keys(manifest.params.properties ?? {}).length > 0 && promotable.size === 0 && (
+              <div className="panel-hint">
+                None of this node&rsquo;s parameters can be exposed as an input port &mdash; its author has not
+                marked any promotable.
+              </div>
+            )}
             {Object.keys(manifest.params.properties ?? {}).length === 0 && (
               <div className="panel-hint">This node has no parameters.</div>
             )}

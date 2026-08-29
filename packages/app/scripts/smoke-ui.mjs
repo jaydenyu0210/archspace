@@ -577,6 +577,36 @@ if (drop.nodes !== ui.canvasNodes) {
   fail(`dropping a file changed the graph (${ui.canvasNodes} -> ${drop.nodes} nodes)`);
 }
 
+// ...but it must still be allowed to reload ITSELF. `will-navigate` fires for a
+// renderer-initiated reload, so a blanket `preventDefault` refuses the very
+// thing Vite does when HMR cannot patch a change — `pnpm dev` stops picking up
+// edits and looks like a broken build. Asserted here because that failure is
+// invisible to every other gate: production never reloads.
+//
+// A marker on `window`, because "the app is still rendered" cannot tell a
+// successful reload from a REFUSED one — the old page is still there either
+// way. Only something that a fresh document would not have distinguishes them.
+const beforeReload = await evaluate(ws, 906, `(() => {
+  window.__smokeReloadMarker = 'set-before-reload';
+  return JSON.stringify({ href: location.href, marker: window.__smokeReloadMarker });
+})()`);
+await evaluate(ws, 907, `(() => { location.reload(); return '"asked"'; })()`);
+await new Promise((r) => setTimeout(r, 3000));
+const afterReload = await evaluate(ws, 908, `JSON.stringify({
+  href: location.href,
+  marker: window.__smokeReloadMarker ?? null,
+  mounted: !!document.querySelector('.react-flow'),
+})`);
+if (afterReload?.href !== beforeReload?.href) {
+  fail(`a reload changed the URL: ${beforeReload?.href} -> ${afterReload?.href}`);
+}
+if (afterReload?.marker !== null) {
+  fail('the page never actually reloaded — the marker from before it survived, so the navigation guard refused its own document');
+}
+if (afterReload?.mounted !== true) {
+  fail('the window reloaded and did not come back');
+}
+
 const hrefBefore = await evaluate(ws, 911, 'JSON.stringify(location.href)');
 await evaluate(ws, 912, `(() => { location.href = 'https://example.com/'; return '"asked"'; })()`);
 await new Promise((r) => setTimeout(r, 700));
@@ -617,5 +647,6 @@ console.log(
     `       storey switcher — ${storeys.buttons} storeys, switching to 4 redrew the plan; panel resized ${beforeDrag} -> ${afterDrag.preview}px\n` +
     `       saved through the UI — clicked Save on the DXF exporter, ${savedBytes.byteLength} bytes of valid R12 landed on disk\n` +
     `       refused to navigate \u2014 a dropped file was cancelled and a scripted location change did not leave ${hrefBefore}\n` +
-    `       promotion clicked \u2014 ${promoteBefore.buttons} promotable param${promoteBefore.buttons === 1 ? '' : 's'} offered; promoting file_name took the exporter ${promoteBefore.inPorts} \u2192 ${promoteAfter.inPorts} input ports, demoting put it back`,
+    `       promotion clicked \u2014 ${promoteBefore.buttons} promotable param${promoteBefore.buttons === 1 ? '' : 's'} offered; promoting file_name took the exporter ${promoteBefore.inPorts} \u2192 ${promoteAfter.inPorts} input ports, demoting put it back\n` +
+    `       reloaded itself and came back \u2014 the navigation guard refuses other documents, not its own`,
 );

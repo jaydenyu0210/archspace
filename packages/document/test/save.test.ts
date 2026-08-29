@@ -368,3 +368,59 @@ layout: {}
     expect(saveWorkflow(parsed.source, parsed.doc)).toBe(shared);
   });
 });
+
+/**
+ * A node APPENDED by a save must look like the same node EMITTED from scratch.
+ *
+ * The two paths build a node entry differently — `emitWorkflow` re-styles the
+ * whole tree, `saveWorkflow` pushes one `createNode` result into an existing
+ * sequence — and `createNode` builds a block sequence. So a node added in the
+ * app saved its `promoted:` over three lines where the emitter writes one, and
+ * the canonical form of a document depended on which path had written it. Every
+ * other list in this format is flow (`requires:` is the precedent).
+ */
+describe('a node added by a save', () => {
+  const base = `archspace: 1
+kind: workflow
+meta:
+  name: Append
+requires:
+  mcp: []
+  ai: []
+  plugins: []
+nodes:
+  - id: n_aaa111
+    type: aec.project_brief
+    version: 1
+    config: {}
+edges: []
+layout:
+  n_aaa111: { x: 0, y: 0 }
+`;
+
+  it('writes promoted: in the same flow form the emitter uses', () => {
+    const parsed = parseWorkflow(base);
+    if (!parsed.ok) throw new Error('parse failed');
+    const withNode: WorkflowDoc = {
+      ...parsed.doc,
+      nodes: [
+        ...parsed.doc.nodes,
+        { id: 'n_bbb222', type: 'aec.export_dxf', version: 1, promoted: ['file_name', 'level'], config: {} },
+      ],
+      layout: { ...parsed.doc.layout, n_bbb222: { x: 200, y: 0 } },
+    };
+
+    const saved = saveWorkflow(parsed.source, withNode);
+    expect(saved).toContain('promoted: [file_name, level]');
+    expect(saved).not.toMatch(/promoted:\n\s+- /);
+
+    // And the two writers agree, which is the property that matters: the
+    // canonical form must not depend on which path produced the file.
+    const emitted = emitWorkflow(withNode);
+    expect(emitted).toContain('promoted: [file_name, level]');
+
+    const reparsed = parseWorkflow(saved);
+    expect(reparsed.ok).toBe(true);
+    if (reparsed.ok) expect(reparsed.doc.nodes[1].promoted).toEqual(['file_name', 'level']);
+  });
+});

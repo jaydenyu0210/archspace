@@ -24,6 +24,7 @@ import {
 import { assignable } from '@archspace/types';
 import type { NodeManifest } from '@archspace/node-sdk';
 import { resolvePromotions } from '@archspace/node-sdk/promotion';
+import { toEngineGraph } from '@archspace/engine/graph';
 import type { ProfileStatus } from '@archspace/ai-gateway';
 import type { McpServerStatus } from '@archspace/mcp-host';
 import type { InstalledPluginInfo } from '@archspace/plugin-host';
@@ -595,27 +596,19 @@ export const useStore = create<StoreState>((set, get) => ({
 
   markSaved: (path) => set({ filePath: path, dirty: false }),
 
-  buildGraph: () => {
-    const s = get();
-    return {
-      // `toEngineGraph`, not a fourth hand-written copy. Two of these used to
-      // live in the CLI and one here, which is how `archspace doctor` and
-      // `archspace run` come to disagree about the same file: `EngineNodeSpec`
-      // permits extra properties, so a copy that forgot `promoted` type-checks
-      // and validates a graph the engine then executes differently.
-      nodes: s.nodes.map((n) => ({
-        id: n.id,
-        type: n.data.typeId,
-        version: n.data.version,
-        ...(n.data.promoted !== undefined ? { promoted: n.data.promoted } : {}),
-        config: structuredClone(n.data.config),
-      })),
-      edges: s.edges.map((e) => ({
-        from: { node: e.source, port: e.sourceHandle ?? '' },
-        to: { node: e.target, port: e.targetHandle ?? '' },
-      })),
-    };
-  },
+  // `toEngineGraph`, actually called rather than described. This was a fourth
+  // hand-written copy under a comment claiming it was not one — and the two had
+  // already drifted apart in the commit that added them: this side emitted
+  // `promoted: []` where `toEngineGraph` omits an empty list. Harmless only
+  // because `resolvePromotions` short-circuits on an empty array, which is the
+  // sort of luck the shared function exists to stop relying on.
+  //
+  // `buildDoc` already produces the `{nodes, edges}` shape the mapper takes, so
+  // the app's run path and `archspace run` now derive their graph from one
+  // function over one document shape. Imported from `@archspace/engine/graph`,
+  // not the barrel: the barrel would pull `startRun`'s `node:fs` imports into
+  // the renderer bundle.
+  buildGraph: () => toEngineGraph(get().buildDoc()),
 
   runStarted: (runId) =>
     set({

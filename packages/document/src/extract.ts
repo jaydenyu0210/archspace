@@ -23,6 +23,21 @@ export interface Extraction {
 }
 
 /**
+ * A key written with nothing after it.
+ *
+ * `edges:` on its own line parses to `null`, which is what YAML says it is and
+ * "an empty list" is what the person who typed it meant. Accepting it costs one
+ * predicate and removes a way for a hand-edited file to become unopenable.
+ * Distinct from an explicit `edges: []`, which reaches the sequence branch, and
+ * from `edges: 7`, which is still an error.
+ */
+function isEmptyKey(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  // The CST wraps a bare key's value in a Scalar whose value is null.
+  return typeof value === 'object' && (value as { value?: unknown }).value === null;
+}
+
+/**
  * Read a WorkflowDoc out of a parsed yaml Document, resiliently
  * (ARCHITECTURE §4 "loading is resilient", parse rules in ADR-0004).
  *
@@ -41,21 +56,6 @@ export interface Extraction {
  * reports for a document is exactly what a save compares the caller's doc
  * against, which is what makes a no-op save byte-identical.
  */
-/**
- * A key written with nothing after it.
- *
- * `edges:` on its own line parses to `null`, which is what YAML says it is and
- * "an empty list" is what the person who typed it meant. Accepting it costs one
- * predicate and removes a way for a hand-edited file to become unopenable.
- * Distinct from an explicit `edges: []`, which reaches the sequence branch, and
- * from `edges: 7`, which is still an error.
- */
-function isEmptyKey(value: unknown): boolean {
-  if (value === null || value === undefined) return true;
-  // The CST wraps a bare key's value in a Scalar whose value is null.
-  return typeof value === 'object' && (value as { value?: unknown }).value === null;
-}
-
 export function extractWorkflow(ydoc: Document): Extraction {
   const issues: DocIssue[] = [];
   const error = (message: string, path?: string): void => {

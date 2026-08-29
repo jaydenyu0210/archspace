@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Demand-driven memoized DAG execution: lanes, cancellation, retry, event stream (ARCHITECTURE §7 / ADR-0007)",
+  "description": "Demand-driven memoized DAG execution: lanes, cancellation, retry, event stream (ARCHITECTURE \u00a77 / ADR-0007)",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./graph": "./src/graph.ts"
   },
   "scripts": {
     "test": "vitest run",

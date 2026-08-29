@@ -85,6 +85,11 @@ function usage(code = 2): never {
   process.exit(code);
 }
 
+/** The mcp.yaml this run read, spelled with the platform's own separator. */
+function mcpConfigPathFor(rt: Runtime): string {
+  return join(rt.config.dir, MCP_CONFIG_FILENAME);
+}
+
 /**
  * Say what could not be read out of the settings directory.
  *
@@ -95,17 +100,16 @@ function usage(code = 2): never {
  * sends the user to add servers to a file that already has them and cannot be
  * read. Same for `ai`, `nodes` and `plugins`.
  *
- * Returns whether anything was reported, so a caller can tell "no servers" from
- * "no servers I could parse" without re-deriving it.
+ * Returns how many of them came from `mcp.yaml`, not merely whether there were
+ * any. `rt.config.issues` is the whole settings directory — `mcp.yaml`,
+ * `ai.yaml` and `plugins.json` all land in one list — so a caller that treated
+ * "there were issues" as "mcp.yaml is broken" blamed the wrong file and exited
+ * 1 for a typo in an AI profile. The prefix is what `loadCliConfig` puts on
+ * each line, and it is the only thing that distinguishes them.
  */
-/** The mcp.yaml this run read, spelled with the platform's own separator. */
-function mcpConfigPathFor(rt: Runtime): string {
-  return join(rt.config.dir, MCP_CONFIG_FILENAME);
-}
-
-function reportConfigIssues(rt: Runtime): boolean {
+function reportConfigIssues(rt: Runtime): number {
   for (const issue of rt.config.issues) console.warn(`  [warning] ${issue}`);
-  return rt.config.issues.length > 0;
+  return rt.config.issues.filter((issue) => issue.startsWith(`${MCP_CONFIG_FILENAME} `)).length;
 }
 
 async function runtime(): Promise<Runtime> {
@@ -455,7 +459,7 @@ async function cmdPlugins(): Promise<number> {
 async function cmdMcp(): Promise<number> {
   const rt = await runtime();
   try {
-    const hadIssues = reportConfigIssues(rt);
+    const mcpIssues = reportConfigIssues(rt);
     const connect = options('connect');
     // A failed connection is a failed command. `archspace mcp --connect revit`
     // is the thing a script runs before it depends on that server, and exiting
@@ -476,7 +480,7 @@ async function cmdMcp(): Promise<number> {
     if (servers.length === 0) {
       // "None configured" and "none I could read" are different problems with
       // different fixes, and the second one used to be reported as the first.
-      if (hadIssues) {
+      if (mcpIssues > 0) {
         console.log(`No MCP servers could be read from ${mcpConfigPathFor(rt)} — see the warnings above.`);
         return 1;
       }

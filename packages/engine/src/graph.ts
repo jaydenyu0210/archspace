@@ -28,12 +28,19 @@ export function edgeLabel(e: EngineEdgeSpec): string {
 /**
  * The one document → graph mapping.
  *
- * There used to be three hand-written copies of this — two in the CLI (`run`
- * and `doctor`) and one in the app's store — which is how `archspace doctor`
- * and `archspace run` come to disagree about the same file. `EngineNodeSpec`'s
+ * There were three hand-written copies of this — two in the CLI (`run` and
+ * `doctor`) and one in the app's store — which is how `archspace doctor` and
+ * `archspace run` come to disagree about the same file. `EngineNodeSpec`'s
  * extra properties are structurally permitted, so a copy that forgot a field
  * type-checks, passes every test, and validates a graph the engine then
  * executes differently. One function, imported by all three.
+ *
+ * The renderer reaches it through `@archspace/engine/graph`, not the barrel.
+ * That is why this module has no runtime imports at all: the barrel re-exports
+ * `startRun`, which pulls `node:fs/promises`, `node:os` and `node:path` into
+ * whatever imports it — and the renderer's every other reference to this
+ * package is `import type`, which erases. Same reasoning as
+ * `@archspace/node-sdk/promotion` (ADR-0017 decision 6).
  *
  * Typed against the shape rather than importing `@archspace/document`: the
  * engine does not depend on the document package and must not start, since

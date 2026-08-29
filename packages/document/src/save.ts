@@ -28,6 +28,7 @@ import {
   deletePair,
   findPair,
   insertIndexFor,
+  keyString,
   mapSet,
   newValueNode,
   roundPos,
@@ -228,7 +229,21 @@ export function saveWorkflow(
     if (newNodes.length > 0) {
       const seq = ensureSeqSection('nodes');
       for (const n of newNodes) {
-        seq.items.push(newValueNode(ydoc, canonicalNodeShape(n)));
+        const item = newValueNode(ydoc, canonicalNodeShape(n));
+        // `createNode` builds a block sequence, and every list in this format
+        // is written flow (`[a, b]`) — `requires:` and the emitter's own
+        // `promoted:` both are. Without this a node ADDED in the app saved as
+        // three lines where the same node emitted from scratch is one, so the
+        // canonical form depended on which path wrote it.
+        if (isMap(item)) {
+          for (const pair of (item as YAMLMap).items) {
+            if (keyString(pair.key) === 'promoted' && isSeq(pair.value)) {
+              Object.setPrototypeOf(pair.value, UnpaddedFlowSeq.prototype);
+              (pair.value as YAMLSeq).flow = true;
+            }
+          }
+        }
+        seq.items.push(item);
         touch();
       }
     }
