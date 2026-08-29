@@ -41,6 +41,21 @@ export interface Extraction {
  * reports for a document is exactly what a save compares the caller's doc
  * against, which is what makes a no-op save byte-identical.
  */
+/**
+ * A key written with nothing after it.
+ *
+ * `edges:` on its own line parses to `null`, which is what YAML says it is and
+ * "an empty list" is what the person who typed it meant. Accepting it costs one
+ * predicate and removes a way for a hand-edited file to become unopenable.
+ * Distinct from an explicit `edges: []`, which reaches the sequence branch, and
+ * from `edges: 7`, which is still an error.
+ */
+function isEmptyKey(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  // The CST wraps a bare key's value in a Scalar whose value is null.
+  return typeof value === 'object' && (value as { value?: unknown }).value === null;
+}
+
 export function extractWorkflow(ydoc: Document): Extraction {
   const issues: DocIssue[] = [];
   const error = (message: string, path?: string): void => {
@@ -91,8 +106,15 @@ export function extractWorkflow(ydoc: Document): Extraction {
   }
 
   // nodes — on success, nodes[i] corresponds 1:1 with the CST sequence items.
+  //
+  // `isEmptyKey` and not a bare `isSeq` check: `nodes:` with nothing after it
+  // is YAML for `nodes: null`, and every person who writes it means "none
+  // yet". Refusing it made the file unopenable while an entirely ABSENT
+  // `nodes` key was fine — absent is permitted, empty is fatal, which is
+  // backwards and is what a hand-editor hits the moment they delete the last
+  // entry. §4.2 rule 3 exists so hand-editing survives.
   const nodesPair = findPair(root, 'nodes');
-  if (nodesPair !== undefined && !isSeq(nodesPair.value)) {
+  if (nodesPair !== undefined && !isEmptyKey(nodesPair.value) && !isSeq(nodesPair.value)) {
     error('nodes must be a sequence', 'nodes');
     return fail();
   }
@@ -175,7 +197,7 @@ export function extractWorkflow(ydoc: Document): Extraction {
 
   // edges — on success, edges[i] corresponds 1:1 with the CST sequence items.
   const edgesPair = findPair(root, 'edges');
-  if (edgesPair !== undefined && !isSeq(edgesPair.value)) {
+  if (edgesPair !== undefined && !isEmptyKey(edgesPair.value) && !isSeq(edgesPair.value)) {
     error('edges must be a sequence', 'edges');
     return fail();
   }

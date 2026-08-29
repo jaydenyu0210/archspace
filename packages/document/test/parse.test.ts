@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseWorkflow } from '../src/index.js';
+import { emitWorkflow, parseWorkflow } from '../src/index.js';
 
 const MINIMAL = [
   'archspace: 1',
@@ -175,5 +175,70 @@ describe('parseWorkflow — resilient loading with warnings', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.doc.meta).toEqual({ name: 'X' });
+  });
+});
+
+/**
+ * A key written with nothing after it.
+ *
+ * `edges:` on its own line is YAML for `edges: null`, and every person who
+ * types it means "none yet". It was fatal — while an entirely ABSENT `edges`
+ * key was fine. Absent permitted, empty refused, which is backwards and is
+ * exactly what a hand-editor hits the moment they delete the last entry. §4.2
+ * rule 3 exists so hand-editing survives a round trip; a file that cannot be
+ * opened does not get that far.
+ */
+describe('a bare nodes: or edges: key means empty, not broken', () => {
+  const doc = (body: string): string => `archspace: 1
+kind: workflow
+meta:
+  name: Bare keys
+${body}`;
+
+  it('opens a document whose edges key is bare', () => {
+    const parsed = parseWorkflow(
+      doc(`nodes:
+  - id: n_aaa111
+    type: aec.project_brief
+    version: 1
+    config: {}
+edges:
+layout:
+  n_aaa111: { x: 0, y: 0 }
+`),
+    );
+    expect(parsed.ok, JSON.stringify(parsed.issues)).toBe(true);
+    if (parsed.ok) expect(parsed.doc.edges).toEqual([]);
+  });
+
+  it('opens a document whose nodes key is bare', () => {
+    const parsed = parseWorkflow(doc('nodes:\nedges: []\nlayout: {}\n'));
+    expect(parsed.ok, JSON.stringify(parsed.issues)).toBe(true);
+    if (parsed.ok) expect(parsed.doc.nodes).toEqual([]);
+  });
+
+  it('opens a document with both bare, which is what a new file looks like', () => {
+    const parsed = parseWorkflow(doc('nodes:\nedges:\nlayout:\n'));
+    expect(parsed.ok, JSON.stringify(parsed.issues)).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.doc.nodes).toEqual([]);
+      expect(parsed.doc.edges).toEqual([]);
+    }
+  });
+
+  it('still refuses a value that is neither empty nor a sequence', () => {
+    // The check is being relaxed for `null` only; `edges: 7` is still wrong,
+    // and so is a map where a list belongs.
+    expect(parseWorkflow(doc('nodes: []\nedges: 7\nlayout: {}\n')).ok).toBe(false);
+    expect(parseWorkflow(doc('nodes: {a: 1}\nedges: []\nlayout: {}\n')).ok).toBe(false);
+    expect(parseWorkflow(doc('nodes: []\nedges: "a -> b"\nlayout: {}\n')).ok).toBe(false);
+  });
+
+  it('round-trips a bare key to the canonical empty list', () => {
+    const parsed = parseWorkflow(doc('nodes:\nedges:\nlayout:\n'));
+    if (!parsed.ok) throw new Error('expected a parse');
+    // Emitting from scratch produces the canonical form; the point is that the
+    // document survived to be emitted at all.
+    expect(emitWorkflow(parsed.doc)).toContain('edges: []');
   });
 });

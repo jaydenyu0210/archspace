@@ -637,14 +637,28 @@ export function startRun(graph: EngineGraph, opts: RunOptions): RunHandle {
         const out: unknown = await mod.execute(ctx, frozenInputs, params);
         checkOutputs(manifest, out);
         const durationMs = hooks.now() - startedAt;
-        if (cacheKey !== undefined) cache.set(cacheKey, out); // completed results stay valid, even after cancel
+        // Previews FIRST, then the memo. Everything after `execute` can still
+        // fail on the value it returned, and the order decides what a failure
+        // there leaves behind: caching first meant an entry could outlive the
+        // node that reported failed, and the cache-hit branch above renders a
+        // preview outside any try — so the next run would meet the same value
+        // with no handler over it. Computing the preview before the `set`
+        // makes "the cache holds only results a node fully succeeded on" true
+        // by construction rather than by the accident that `structuredClone`
+        // happens to reject the same values `JSON.stringify` does.
+        //
+        // A completed result still survives a cancel: nothing on this path
+        // consults the abort signal, which is what the note this replaces was
+        // about.
+        const previews = outputPreviews(manifest, out);
+        if (cacheKey !== undefined) cache.set(cacheKey, out);
         outputsByNode.set(id, out);
         emit({
           type: 'node:succeeded',
           nodeId: id,
           cached: false,
           durationMs,
-          outputPreviews: outputPreviews(manifest, out),
+          outputPreviews: previews,
         });
         settle(id, 'succeeded');
         return;
