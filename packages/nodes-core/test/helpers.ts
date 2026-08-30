@@ -189,7 +189,11 @@ export async function runPipeline(overrides: PipelineOverrides = {}): Promise<Pi
     assets,
   });
   const plan = await runNode(generateFloorPlanNode, {
-    params: { mock_latency_ms: 0, ...overrides.plan },
+    // `backend: 'mock'` explicitly, because the node now DEFAULTS to asking a
+    // model. This helper is the deterministic pipeline every downstream suite
+    // builds on — a plan whose parti a model chose is a different fixture, and
+    // the ai path has its own suite.
+    params: { backend: 'mock', mock_latency_ms: 0, ...overrides.plan },
     inputs: { brief: brief.outputs.brief, program: program.outputs.program },
     assets,
   });

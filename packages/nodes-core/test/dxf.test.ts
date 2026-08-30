@@ -181,7 +181,7 @@ async function exportPlan(
     assets,
   });
   const planRun = await runNode(generateFloorPlanNode, {
-    params: { mock_latency_ms: 0 },
+    params: { backend: 'mock' as const, mock_latency_ms: 0 },
     inputs: { brief: brief.outputs.brief, program: program.outputs.program },
     assets,
   });

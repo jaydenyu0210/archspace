@@ -226,3 +226,58 @@ describe('validateLayoutPlan', () => {
     }
   });
 });
+
+describe('the auto backend degrades rather than failing the run', () => {
+  /** What the gateway throws when nothing is bound: name is the contract. */
+  function bindingError(): Error {
+    const err = new Error('AI model profile "default" is not configured on this machine.');
+    err.name = 'AiProfileError';
+    return err;
+  }
+
+  /** What it throws when a bound profile answers badly — a retired model id. */
+  function providerError(): Error {
+    const err = new Error('Google Gemini returned HTTP 404: model no longer available');
+    err.name = 'AiProviderError';
+    return err;
+  }
+
+  async function runAuto(reject: Error) {
+    return runNode(generateFloorPlanNode, {
+      params: { mock_latency_ms: 0 },
+      inputs: { brief: BRIEF as unknown as Value, program: PROGRAM as unknown as Value },
+      ai: { generateObject: () => Promise.reject(reject) },
+    });
+  }
+
+  it('is the default, so a machine with no AI still draws a plan', async () => {
+    const run = await runAuto(bindingError());
+    const plan = run.outputs.floor_plan as unknown as FloorPlanResult;
+
+    expect(plan.levels[0].rooms.length).toBeGreaterThan(0);
+    // Silent degradation is the failure mode worth refusing: the reason is in
+    // the log, at warn, carrying the gateway's own sentence.
+    const warning = run.logs.find((l) => l.level === 'warn');
+    expect(warning?.message).toMatch(/No AI model profile is usable/);
+    expect(warning?.message).toMatch(/not configured on this machine/);
+  });
+
+  it('degrades on a bound-but-broken provider too, saying which', async () => {
+    const run = await runAuto(providerError());
+
+    const warning = run.logs.find((l) => l.level === 'warn');
+    expect(warning?.message).toMatch(/did not answer/);
+    expect(warning?.message).toMatch(/HTTP 404/);
+    expect((run.outputs.floor_plan as unknown as FloorPlanResult).levels).toHaveLength(1);
+  });
+
+  it('fails instead of degrading when the backend is explicitly ai', async () => {
+    const error = await runNode(generateFloorPlanNode, {
+      params: { backend: 'ai', mock_latency_ms: 0 },
+      inputs: { brief: BRIEF as unknown as Value, program: PROGRAM as unknown as Value },
+      ai: { generateObject: () => Promise.reject(providerError()) },
+    }).catch((err: unknown) => err);
+
+    expect((error as Error).message).toMatch(/HTTP 404/);
+  });
+});

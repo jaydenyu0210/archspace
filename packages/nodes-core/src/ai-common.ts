@@ -90,3 +90,24 @@ export function composeUserPrompt(
   if (written === '') return wired;
   return `${written}\n\n# ${heading}\n\n${wired}`;
 }
+
+/**
+ * Is this failure "the machine has no usable AI binding", rather than "the AI
+ * we do have went wrong"?
+ *
+ * The gateway raises `AiProfileError` for the first and `AiProviderError` for
+ * the second, and keeps them apart precisely because the remedies belong to
+ * different people (ai-gateway/errors.ts). Nodes cannot `instanceof` either —
+ * nodes-core does not depend on that package, by design — so the class is read
+ * off `name`, which that file documents as the structural contract.
+ *
+ * The distinction is what makes an `auto` backend honest. A machine with no
+ * profile bound gets the deterministic scheme, because that is the whole
+ * point of a mock. A machine whose profile IS bound and answered with a 404
+ * gets the failure, because silently drawing a mock there would hide a broken
+ * key behind a run that looked like it worked — and the message the gateway
+ * already wrote names the fix.
+ */
+export function isProfileBindingError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AiProfileError';
+}

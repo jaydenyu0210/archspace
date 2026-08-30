@@ -33,7 +33,7 @@ async function upstream(
   const brief = await runNode(projectBriefNode, { params: overrides.brief, assets });
   const program = await runNode(spaceProgramNode, { inputs: { brief: brief.outputs.brief }, assets });
   const plan = await runNode(generateFloorPlanNode, {
-    params: { mock_latency_ms: 0, ...overrides.plan },
+    params: { backend: 'mock' as const, mock_latency_ms: 0, ...overrides.plan },
     inputs: { brief: brief.outputs.brief, program: program.outputs.program },
     assets,
   });

@@ -20,7 +20,12 @@ import type {
   TableValue,
 } from './shapes.js';
 import { cellText, hex8, mulberry32, requireInput, round2, round3, sleep, toValue } from './util.js';
-import { describeProfile, MODEL_PROFILE_PARAM, requestedProfile } from './ai-common.js';
+import {
+  describeProfile,
+  isProfileBindingError,
+  MODEL_PROFILE_PARAM,
+  requestedProfile,
+} from './ai-common.js';
 import {
   LAYOUT_PLAN_SCHEMA,
   layoutPrompt,
@@ -31,7 +36,7 @@ import {
 } from './floor-plan-ai.js';
 
 export interface GenerateFloorPlanParams {
-  backend: 'mock' | 'ai';
+  backend: 'auto' | 'ai' | 'mock';
   profile: string;
   seed: number;
   corridor_width_mm: number;
@@ -113,10 +118,10 @@ export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
         backend: {
           type: 'string',
           title: 'Backend',
-          enum: ['mock', 'ai'],
-          default: 'mock',
+          enum: ['auto', 'ai', 'mock'],
+          default: 'auto',
           description:
-            'mock: a double-loaded corridor down the long axis, as this node has always drawn. ai: the model bound to the profile below chooses the circulation parti — which way the spine runs, single or double loaded, corridor width and room depth — and the packer draws it.',
+            'auto: the model bound to the profile below chooses the circulation parti, falling back to the deterministic layout when this machine has no AI profile bound. ai: require the model, and fail if it is unavailable. mock: never call a model — a double-loaded corridor down the long axis, as this node has always drawn.',
         },
         profile: MODEL_PROFILE_PARAM,
         seed: { type: 'integer', title: 'Seed', default: 7, minimum: 0 },
@@ -182,20 +187,40 @@ export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
     // mock backend they are the constants this node has always used; on the ai
     // backend a model picks them and `validateLayoutPlan` refuses one that
     // cannot be built. Everything downstream is the same packing either way.
-    const layout =
-      params.backend === 'ai'
-        ? await proposeLayout(ctx, params, brief, widthMm, depthMm, rowsByLevel)
-        : {
-            // Historically: the long site axis, a double-loaded corridor of the
-            // configured width, and rooms filling whatever depth is left.
-            runAxis: (widthMm >= depthMm ? 'width' : 'depth') as RunAxis,
-            loading: 'double' as Loading,
-            corridorWidthMm: params.corridor_width_mm,
-            roomDepthMm: Math.floor((Math.min(widthMm, depthMm) - params.corridor_width_mm) / 2),
-            rationale: '',
-          };
+    // Historically, and still when no model answers: the long site axis, a
+    // double-loaded corridor of the configured width, and rooms filling
+    // whatever depth is left.
+    const deterministic: LayoutPlan = {
+      runAxis: (widthMm >= depthMm ? 'width' : 'depth') as RunAxis,
+      loading: 'double' as Loading,
+      corridorWidthMm: params.corridor_width_mm,
+      roomDepthMm: Math.floor((Math.min(widthMm, depthMm) - params.corridor_width_mm) / 2),
+      rationale: '',
+    };
 
-    if (params.backend === 'ai' && layout.rationale !== '') ctx.log('info', layout.rationale);
+    let layout = deterministic;
+    let drawnByModel = false;
+    if (params.backend !== 'mock') {
+      try {
+        layout = await proposeLayout(ctx, params, brief, widthMm, depthMm, rowsByLevel);
+        drawnByModel = true;
+      } catch (err) {
+        // `auto` means "use a model when one works". Anything that stops a
+        // usable parti arriving — no profile bound, a retired model id, a
+        // provider that will not answer — degrades to the deterministic
+        // layout so the run still produces a plan. It is never silent: the
+        // provider's own sentence goes in the log at `warn`, and the strict
+        // `ai` backend exists for anyone who would rather the run failed.
+        if (params.backend === 'ai') throw err;
+        ctx.log(
+          'warn',
+          `${isProfileBindingError(err) ? 'No AI model profile is usable' : 'The AI model profile did not answer'}, ` +
+            `so this plan uses the deterministic layout — ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    if (drawnByModel && layout.rationale !== '') ctx.log('info', layout.rationale);
 
     const runMm = layout.runAxis === 'width' ? widthMm : depthMm;
     const acrossMm = layout.runAxis === 'width' ? depthMm : widthMm;

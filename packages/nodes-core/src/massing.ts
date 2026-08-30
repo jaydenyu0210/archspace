@@ -23,7 +23,12 @@ import type {
   TableValue,
 } from './shapes.js';
 import { hex8, mulberry32, requireInput, round2, round3, sleep, toValue } from './util.js';
-import { describeProfile, MODEL_PROFILE_PARAM, requestedProfile } from './ai-common.js';
+import {
+  describeProfile,
+  isProfileBindingError,
+  MODEL_PROFILE_PARAM,
+  requestedProfile,
+} from './ai-common.js';
 import {
   MASSING_PROPOSAL_SCHEMA,
   massingPrompt,
@@ -34,7 +39,7 @@ import {
 } from './massing-ai.js';
 
 export interface GenerateMassingParams {
-  backend: 'mock' | 'ai';
+  backend: 'auto' | 'ai' | 'mock';
   profile: string;
   strategy: MassingStrategy;
   seed: number;
@@ -304,10 +309,10 @@ export const generateMassingNode: NodeModule<GenerateMassingParams> = {
         backend: {
           type: 'string',
           title: 'Backend',
-          enum: ['mock', 'ai'],
-          default: 'mock',
+          enum: ['auto', 'ai', 'mock'],
+          default: 'auto',
           description:
-            'mock: the deterministic scheme built from the envelope and the target. ai: the model bound to the profile below chooses the footprint, and every number is still computed from the polygon it returns.',
+            'auto: the model bound to the profile below chooses the footprint, falling back to the deterministic scheme when this machine has no AI profile bound. ai: require the model, and fail if it is unavailable. mock: never call a model — the scheme built from the envelope and the target.',
         },
         profile: MODEL_PROFILE_PARAM,
         strategy: {
@@ -384,26 +389,60 @@ export const generateMassingNode: NodeModule<GenerateMassingParams> = {
     // whichever polygons arrived, which is what makes a sampled scheme's
     // numbers as trustworthy as a derived one's: they describe the shape that
     // is actually there, because nothing else was ever asked for.
-    let base: Shape;
-    let upper: Shape | null;
-    let strategy: MassingStrategy;
-    let setbackAbove: number;
-
-    if (params.backend === 'ai') {
-      const proposal = await proposeMassing(ctx, params, brief, envW, envD, storeyCount);
-      strategy = proposal.strategy;
-      base = shapeFromProposalRing(proposal.footprint);
-      upper = proposal.upperFootprint === undefined ? null : shapeFromProposalRing(proposal.upperFootprint);
-      setbackAbove = proposal.setbackAboveLevel ?? storeyCount;
-      if (proposal.rationale !== '') ctx.log('info', proposal.rationale);
-      ctx.log('info', 'massing scheme chosen by a model', proposalSummary(proposal));
-    } else {
-      strategy = params.strategy;
-      base = buildShape(strategy, envW, envD, targetFootprintM2, jitter, shrink);
-      // tower_podium: levels 0–1 are the podium, levels 2+ the tower plate.
-      upper = strategy === 'tower_podium' ? centredTower(base) : null;
-      setbackAbove = 2;
+    interface Scheme {
+      strategy: MassingStrategy;
+      base: Shape;
+      upper: Shape | null;
+      setbackAbove: number;
     }
+
+    const deterministicScheme = (): Scheme => {
+      const chosen = params.strategy;
+      const shape = buildShape(chosen, envW, envD, targetFootprintM2, jitter, shrink);
+      return {
+        strategy: chosen,
+        base: shape,
+        // tower_podium: levels 0–1 are the podium, levels 2+ the tower plate.
+        upper: chosen === 'tower_podium' ? centredTower(shape) : null,
+        setbackAbove: 2,
+      };
+    };
+
+    let scheme: Scheme;
+    let chosenByModel = false;
+    if (params.backend === 'mock') {
+      scheme = deterministicScheme();
+    } else {
+      try {
+        const proposal = await proposeMassing(ctx, params, brief, envW, envD, storeyCount);
+        scheme = {
+          strategy: proposal.strategy,
+          base: shapeFromProposalRing(proposal.footprint),
+          upper:
+            proposal.upperFootprint === undefined ? null : shapeFromProposalRing(proposal.upperFootprint),
+          setbackAbove: proposal.setbackAboveLevel ?? storeyCount,
+        };
+        chosenByModel = true;
+        if (proposal.rationale !== '') ctx.log('info', proposal.rationale);
+        ctx.log('info', 'massing scheme chosen by a model', proposalSummary(proposal));
+      } catch (err) {
+        // `auto` means "use a model when one works". Anything that stops a
+        // usable scheme arriving degrades to the deterministic one so the run
+        // still produces a massing — never silently: the provider's own
+        // sentence goes in the log at `warn`, and `generator.name` below
+        // records which backend actually drew this. The strict `ai` backend
+        // exists for anyone who would rather the run failed.
+        if (params.backend === 'ai') throw err;
+        ctx.log(
+          'warn',
+          `${isProfileBindingError(err) ? 'No AI model profile is usable' : 'The AI model profile did not answer'}, ` +
+            `so this massing is the deterministic scheme — ${err instanceof Error ? err.message : String(err)}`,
+        );
+        scheme = deterministicScheme();
+      }
+    }
+
+    const { strategy, base, upper, setbackAbove } = scheme;
 
     ctx.progress(0.5, `stacking ${storeyCount} storeys as a ${strategy} scheme`);
     await sleep(params.mock_latency_ms / 3, ctx.signal);
@@ -449,7 +488,9 @@ export const generateMassingNode: NodeModule<GenerateMassingParams> = {
     const result: MassingResult = {
       massingId,
       generator: {
-        name: params.backend === 'ai' ? 'ai-massing' : 'mock-massing',
+        // What actually produced this scheme, not what was asked for: an
+        // `auto` run that fell back must not report itself as a model's work.
+        name: chosenByModel ? 'ai-massing' : 'mock-massing',
         version: '1.0.0',
         seed: params.seed,
       },

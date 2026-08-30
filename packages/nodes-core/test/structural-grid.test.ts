@@ -16,7 +16,7 @@ async function makePlan(briefParams: Record<string, unknown> = {}): Promise<Floo
   const brief = await runNode(projectBriefNode, { params: briefParams });
   const program = await runNode(spaceProgramNode, { inputs: { brief: brief.outputs.brief } });
   const plan = await runNode(generateFloorPlanNode, {
-    params: { mock_latency_ms: 0 },
+    params: { backend: 'mock' as const, mock_latency_ms: 0 },
     inputs: { brief: brief.outputs.brief, program: program.outputs.program },
   });
   return plan.outputs.floor_plan as unknown as FloorPlanResult;
