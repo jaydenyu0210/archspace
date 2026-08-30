@@ -14,6 +14,13 @@
  * name, which writes the catalogue's first model and the conventional key
  * name; the model sits in an editable field on the row; the key goes beside it.
  *
+ * Under the model field sit the catalogue's other suggested ids as buttons —
+ * but only the ones the field is not already using, so they vanish when the
+ * model is right and appear when it needs changing. They were briefly lost
+ * with the form and had to come back: a provider retiring a model id is a
+ * routine event (Gemini retired one within hours of it shipping here), and the
+ * repair should be a click rather than a trip to the provider's docs.
+ *
  * The keychain NAME is not shown anywhere. It is derived from the provider and
  * is not a thing anyone picks, so printing it only ever asked people to read an
  * identifier they could not act on. A profile left pointing at another
@@ -708,6 +715,17 @@ export function AiPanel(props: SettingsPanelProps) {
                 single !== null &&
                 ((modelValue.trim() !== single.model && modelValue.trim() !== '') ||
                   (edit.baseUrl !== undefined && edit.baseUrl.trim() !== (single.baseUrl ?? '')));
+              // Catalogue models this row is not already using. Self-hiding by
+              // construction: when the field already holds the only suggestion
+              // there is nothing to offer, so nothing renders. That is what
+              // makes them affordable on a panel cut this far — they appear
+              // exactly when a model id needs changing, which is the moment a
+              // provider retires one and the answer is a click rather than a
+              // trip to the provider's docs.
+              const modelAlternatives =
+                single === null
+                  ? []
+                  : group.descriptor.suggestedModels.filter((m) => m !== modelValue.trim());
               // The key name a single-profile provider should be using. Storing
               // repoints the profile if it names something else, so the field
               // and its badge speak for the key that will actually be read.
@@ -876,6 +894,26 @@ export function AiPanel(props: SettingsPanelProps) {
                           Save
                         </button>
                       )}
+                    </div>
+                  )}
+
+                  {single !== null && modelAlternatives.length > 0 && (
+                    <div className="ai-key-line">
+                      {modelAlternatives.map((model) => (
+                        <button
+                          key={model}
+                          className="settings-btn settings-btn--small"
+                          title={`Use ${model}`}
+                          onClick={() =>
+                            setEdits((s) => ({
+                              ...s,
+                              [single.name]: { ...s[single.name], model },
+                            }))
+                          }
+                        >
+                          {model}
+                        </button>
+                      ))}
                     </div>
                   )}
 
