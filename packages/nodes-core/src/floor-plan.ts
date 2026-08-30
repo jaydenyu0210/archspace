@@ -8,7 +8,7 @@
  * their area. The seeded PRNG is used only for the plan id and small width
  * jitter — same seed + inputs ⇒ byte-identical plans.
  */
-import type { NodeModule } from '@archspace/node-sdk';
+import type { NodeContext, NodeModule } from '@archspace/node-sdk';
 import type {
   FloorPlanLevel,
   FloorPlanResult,
@@ -20,8 +20,19 @@ import type {
   TableValue,
 } from './shapes.js';
 import { cellText, hex8, mulberry32, requireInput, round2, round3, sleep, toValue } from './util.js';
+import { describeProfile, MODEL_PROFILE_PARAM, requestedProfile } from './ai-common.js';
+import {
+  LAYOUT_PLAN_SCHEMA,
+  layoutPrompt,
+  validateLayoutPlan,
+  type LayoutPlan,
+  type Loading,
+  type RunAxis,
+} from './floor-plan-ai.js';
 
 export interface GenerateFloorPlanParams {
+  backend: 'mock' | 'ai';
+  profile: string;
   seed: number;
   corridor_width_mm: number;
   door_width_mm: number;
@@ -30,6 +41,60 @@ export interface GenerateFloorPlanParams {
 
 /** Fixed mock storey height used for plan elevations (BIM has its own param). */
 const PLAN_STOREY_HEIGHT_MM = 3500;
+
+/**
+ * Ask the model for a circulation parti, and refuse one that cannot be built.
+ *
+ * The busiest level is what the fit check is run against, because that is the
+ * level that has to fit: a layout sized for the average one draws the rest off
+ * the edge of the site. Refusal is `ctx.retryable` — a bad sample's remedy is
+ * another sample, and §7.5 gives that decision to the engine's policy rather
+ * than to a loop here.
+ */
+async function proposeLayout(
+  ctx: NodeContext,
+  params: GenerateFloorPlanParams,
+  brief: ProjectBrief,
+  widthMm: number,
+  depthMm: number,
+  rowsByLevel: TableValue['rows'][],
+): Promise<LayoutPlan> {
+  let largestLevelAreaM2 = 0;
+  let roomsOnLargestLevel = 0;
+  for (const rows of rowsByLevel) {
+    const area = rows.reduce((sum, row) => sum + (row.area_m2 as number), 0);
+    if (area > largestLevelAreaM2) {
+      largestLevelAreaM2 = area;
+      roomsOnLargestLevel = rows.length;
+    }
+  }
+
+  const profile = requestedProfile(params.profile);
+  ctx.progress(0, `asking ${describeProfile(profile)} for a circulation parti`);
+
+  const { object } = await ctx.ai.generateObject({
+    schema: LAYOUT_PLAN_SCHEMA,
+    system:
+      'You are an architect choosing the circulation strategy for a concept plan. Answer with the parti only — the rooms are packed for you from the program.',
+    prompt: layoutPrompt(brief, widthMm, depthMm, largestLevelAreaM2, roomsOnLargestLevel),
+    signal: ctx.signal,
+    ...(profile !== undefined ? { profile } : {}),
+  });
+
+  const verdict = validateLayoutPlan(object, {
+    widthMm,
+    depthMm,
+    largestLevelAreaMm2: largestLevelAreaM2 * 1e6,
+    minCorridorMm: 600,
+    maxCorridorMm: 4000,
+  });
+  if (!verdict.ok) {
+    throw ctx.retryable(
+      new Error(`aec.generate_floor_plan: the model's layout was not buildable — ${verdict.why}`),
+    );
+  }
+  return verdict.layout;
+}
 
 export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
   manifest: {
@@ -45,6 +110,15 @@ export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
     params: {
       type: 'object',
       properties: {
+        backend: {
+          type: 'string',
+          title: 'Backend',
+          enum: ['mock', 'ai'],
+          default: 'mock',
+          description:
+            'mock: a double-loaded corridor down the long axis, as this node has always drawn. ai: the model bound to the profile below chooses the circulation parti — which way the spine runs, single or double loaded, corridor width and room depth — and the packer draws it.',
+        },
+        profile: MODEL_PROFILE_PARAM,
         seed: { type: 'integer', title: 'Seed', default: 7, minimum: 0 },
         corridor_width_mm: {
           type: 'integer',
@@ -94,12 +168,6 @@ export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
 
     const widthMm = Math.round(brief.site.widthM * 1000);
     const depthMm = Math.round(brief.site.depthM * 1000);
-    const longMm = Math.max(widthMm, depthMm); // corridor runs the long axis (x)
-    const shortMm = Math.min(widthMm, depthMm); // rooms flank it in y
-    const corridorMm = params.corridor_width_mm;
-    const sideDepthMm = Math.floor((shortMm - corridorMm) / 2);
-    const corridorY0 = sideDepthMm;
-    const corridorY1 = sideDepthMm + corridorMm;
 
     const rowsByLevel: TableValue['rows'][] = [];
     for (let i = 0; i < brief.floors; i++) rowsByLevel.push([]);
@@ -109,6 +177,47 @@ export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
         rowsByLevel[level].push(row);
       }
     }
+
+    // The four decisions that determine what the building LOOKS like. On the
+    // mock backend they are the constants this node has always used; on the ai
+    // backend a model picks them and `validateLayoutPlan` refuses one that
+    // cannot be built. Everything downstream is the same packing either way.
+    const layout =
+      params.backend === 'ai'
+        ? await proposeLayout(ctx, params, brief, widthMm, depthMm, rowsByLevel)
+        : {
+            // Historically: the long site axis, a double-loaded corridor of the
+            // configured width, and rooms filling whatever depth is left.
+            runAxis: (widthMm >= depthMm ? 'width' : 'depth') as RunAxis,
+            loading: 'double' as Loading,
+            corridorWidthMm: params.corridor_width_mm,
+            roomDepthMm: Math.floor((Math.min(widthMm, depthMm) - params.corridor_width_mm) / 2),
+            rationale: '',
+          };
+
+    if (params.backend === 'ai' && layout.rationale !== '') ctx.log('info', layout.rationale);
+
+    const runMm = layout.runAxis === 'width' ? widthMm : depthMm;
+    const acrossMm = layout.runAxis === 'width' ? depthMm : widthMm;
+    const lanes = layout.loading === 'double' ? 2 : 1;
+    const corridorMm = layout.corridorWidthMm;
+    const sideDepthMm = layout.roomDepthMm;
+    // The corridor sits between the lanes when there are two, and against the
+    // far side when there is one, so a single-loaded row still fronts a facade.
+    const corridorY0 = sideDepthMm;
+    const corridorY1 = sideDepthMm + corridorMm;
+
+    /**
+     * Layout space (u along the corridor, v across it) → site coordinates.
+     *
+     * A transpose rather than a rotation: running the spine along the site's
+     * depth means the plan's u axis IS the site's y. Written as one function so
+     * every polygon, wall, door and exit below is generated once, in the frame
+     * the packing logic is natural in, and lands on the site correctly whichever
+     * way the building runs.
+     */
+    const place = (u: number, v: number): [number, number] =>
+      layout.runAxis === 'width' ? [u, v] : [v, u];
 
     const levels: FloorPlanLevel[] = [];
     const chunkMs = params.mock_latency_ms / Math.max(1, brief.floors);
@@ -122,18 +231,20 @@ export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
       let wallN = 0;
       let doorN = 0;
 
+      // Boundary in LAYOUT space, before `place` maps it onto the site: an
+      // edge is exterior when it lies on the run's ends or the across extremes.
       const onBoundary = (a: [number, number], b: [number, number]): boolean =>
         (a[0] === 0 && b[0] === 0) ||
-        (a[0] === longMm && b[0] === longMm) ||
+        (a[0] === runMm && b[0] === runMm) ||
         (a[1] === 0 && b[1] === 0) ||
-        (a[1] === shortMm && b[1] === shortMm);
+        (a[1] === acrossMm && b[1] === acrossMm);
 
-      const addWalls = (x0: number, y0: number, x1: number, y1: number): void => {
+      const addWalls = (u0: number, v0: number, u1: number, v1: number): void => {
         const corners: [number, number][] = [
-          [x0, y0],
-          [x1, y0],
-          [x1, y1],
-          [x0, y1],
+          [u0, v0],
+          [u1, v0],
+          [u1, v1],
+          [u0, v1],
         ];
         for (let e = 0; e < 4; e++) {
           const start = corners[e];
@@ -141,8 +252,8 @@ export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
           const kind = onBoundary(start, end) ? 'exterior' : 'interior';
           walls.push({
             id: `w_${level}_${wallN++}`,
-            start,
-            end,
+            start: place(start[0], start[1]),
+            end: place(end[0], end[1]),
             thicknessMm: kind === 'exterior' ? 200 : 100,
             kind,
           });
@@ -156,19 +267,20 @@ export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
         name: 'Corridor',
         function: 'circulation',
         polygon: [
-          [0, corridorY0],
-          [longMm, corridorY0],
-          [longMm, corridorY1],
-          [0, corridorY1],
+          place(0, corridorY0),
+          place(runMm, corridorY0),
+          place(runMm, corridorY1),
+          place(0, corridorY1),
         ],
-        areaM2: round2((longMm * corridorMm) / 1e6),
+        areaM2: round2((runMm * corridorMm) / 1e6),
       });
-      addWalls(0, corridorY0, longMm, corridorY1);
+      addWalls(0, corridorY0, runMm, corridorY1);
 
       // Pack this level's rooms along both sides of the corridor, in order.
       const cursors: [number, number] = [0, 0];
       rowsByLevel[level].forEach((row, i) => {
-        const side = i % 2;
+        // With a single-loaded corridor every room is on one side.
+        const side = lanes === 2 ? i % 2 : 0;
         const areaM2 = row.area_m2 as number;
         const jitter = 0.98 + rng() * 0.04; // small seeded jitter only
         const roomWidthMm = Math.max(1, Math.round(((areaM2 * 1e6) / sideDepthMm) * jitter));
@@ -176,7 +288,7 @@ export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
         const x1 = x0 + roomWidthMm;
         cursors[side] = x1;
         const y0 = side === 0 ? 0 : corridorY1;
-        const y1 = side === 0 ? corridorY0 : shortMm;
+        const y1 = side === 0 ? corridorY0 : corridorY1 + sideDepthMm;
 
         const id = `r_${level}_${roomN++}`;
         rooms.push({
@@ -185,10 +297,10 @@ export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
           name: cellText(row.name),
           function: cellText(row.function),
           polygon: [
-            [x0, y0],
-            [x1, y0],
-            [x1, y1],
-            [x0, y1],
+            place(x0, y0),
+            place(x1, y0),
+            place(x1, y1),
+            place(x0, y1),
           ],
           areaM2: round2(((x1 - x0) * (y1 - y0)) / 1e6),
         });
@@ -198,20 +310,20 @@ export const generateFloorPlanNode: NodeModule<GenerateFloorPlanParams> = {
         doors.push({
           id: `d_${level}_${doorN++}`,
           roomId: id,
-          position: [Math.round((x0 + x1) / 2), side === 0 ? corridorY0 : corridorY1],
+          position: place(Math.round((x0 + x1) / 2), side === 0 ? corridorY0 : corridorY1),
           widthMm: params.door_width_mm,
         });
       });
 
       // Two stair exits at opposite corridor ends when floors > 1, else one door.
-      const midY = Math.round(shortMm / 2);
+      const midY = Math.round(acrossMm / 2);
       const exits: PlanExit[] =
         brief.floors > 1
           ? [
-              { id: `x_${level}_0`, kind: 'stair', position: [500, midY] },
-              { id: `x_${level}_1`, kind: 'stair', position: [longMm - 500, midY] },
+              { id: `x_${level}_0`, kind: 'stair', position: place(500, midY) },
+              { id: `x_${level}_1`, kind: 'stair', position: place(runMm - 500, midY) },
             ]
-          : [{ id: `x_${level}_0`, kind: 'door', position: [500, midY] }];
+          : [{ id: `x_${level}_0`, kind: 'door', position: place(500, midY) }];
 
       levels.push({
         level,
