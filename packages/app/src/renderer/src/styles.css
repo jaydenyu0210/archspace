@@ -1100,6 +1100,32 @@ body {
 .settings-item-body { display: flex; flex-direction: column; gap: 7px; }
 .settings-item-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 
+/* ---- AI panel: provider rows -------------------------------------------
+   The AI panel is one row per provider with everything else folded away, so
+   three things need shapes the shared .settings-* vocabulary has no name for.
+   Scoped by prefix rather than added to .settings-item-*, which McpPanel,
+   PluginsPanel and AutodeskPanel also render. */
+
+/* The key field, on the collapsed row: the one control most visits are for.
+   The input takes the slack so a long keychain name never squeezes it out. */
+.ai-key-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ai-key-line .settings-input { flex: 1 1 200px; min-width: 0; }
+
+/* Per-profile blocks inside an expanded provider. Indented and ruled, so
+   "this provider holds three bindings" is legible at a glance rather than
+   inferred from repeated names. */
+.ai-bindings { display: flex; flex-direction: column; gap: 8px; }
+.ai-binding {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+
+/* Providers with nothing bound: a row of add buttons, not a second list. */
+.ai-unbound { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+
 .settings-table-wrap {
   border: 1px solid var(--line);
   border-radius: 2px;

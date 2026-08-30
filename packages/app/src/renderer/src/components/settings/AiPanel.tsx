@@ -8,7 +8,24 @@
  * the editor for one side of a contract the document depends on, which is why
  * it shows the readiness of every binding next to the binding itself.
  *
- * Three lines are load-bearing here and each one shapes the markup:
+ * **Shape: one row per provider, everything else folded away.** The panel used
+ * to render five stacked sections — a profile list with every field expanded, a
+ * separate key manager, and the whole provider catalogue with its prose — about
+ * 1,700px of mostly-static text for a machine with two bindings. The row is now
+ * two lines (provider, readiness, and the key field that is the only thing most
+ * people open this panel to touch) with the rest behind `Details`. Nothing was
+ * deleted from the data model: the grouping is a view, computed in
+ * `ai-groups.ts` and tested there, and the write path below never sees a group.
+ *
+ * That last point is load-bearing. `saveAiConfig` is a verbatim whole-file
+ * overwrite with no merge, so a profile the grouping dropped on the way to the
+ * screen would be a profile deleted from the user's file the next time they
+ * pressed Save on something unrelated. `groupProfilesByProvider` therefore
+ * walks the profiles, never the catalogue, and the header counter states
+ * profiles AND providers so a file with four bindings on two providers cannot
+ * read as two bindings.
+ *
+ * Four lines are load-bearing here and each one shapes the markup:
  *
  *  1. **Config and status come from different owners.** The profile LIST is
  *     read from `getAiConfig()` — the file, owned by main — because the user
@@ -17,17 +34,24 @@
  *     until the engine reports. Empty therefore never renders as "nothing
  *     configured"; with `engineReady === false` every row says the readiness
  *     is unknown, because saying otherwise is the honesty rule's failure mode.
- *  2. **`ready` is not `works`.** `listProfiles()` makes no network call
- *     (status.ts) — it can only prove the binding resolves. The only thing in
- *     this panel that may claim a provider answered is a probe, and it earns
- *     the claim by showing the text the model actually returned. A tick this
- *     panel drew on its own would be a claim it had not paid for.
+ *  2. **`ready` is not `works`, and "bound" is not "connected".**
+ *     `listProfiles()` makes no network call (status.ts) — it can only prove
+ *     the binding resolves. So the badge says `bound`, never `connected`, and
+ *     the only thing in this panel that may claim a provider answered is a
+ *     probe, which earns the claim by printing the text the model returned.
+ *     `Test` sits on the collapsed row precisely because it is the one control
+ *     that answers "is this actually working".
  *  3. **Secrets are write-only from here.** The bridge deliberately has no
  *     `getSecret` (preload/index.ts header, §12): the renderer may create,
  *     list and delete key NAMES and can never read a value back. So the key
  *     field is a write-only input that is cleared the moment it is stored, and
  *     what the UI reports is existence and creation time — never a value, not
  *     even the one it just sent.
+ *  4. **A key belongs to a profile, not to a provider.** When one provider's
+ *     profiles name different `apiKeyRef`s the row shows a count and refuses to
+ *     draw a single key field, because one field there would state the
+ *     opposite of what the file says. Any later tidy-up that collapses that
+ *     branch reintroduces the lie.
  *
  * The provider catalogue is rendered FROM `PROVIDERS` rather than from a list
  * written into this view, so "which providers exist, and what does each one
@@ -37,7 +61,8 @@
  * local one is deciding whether their drawing leaves the machine, and the
  * `mock` provider — a real entry with `kind: 'test'` — is marked everywhere it
  * can appear, because a scripted answer that looked like a working cloud
- * integration is exactly the lie this codebase refuses to tell.
+ * integration is exactly the lie this codebase refuses to tell. Its
+ * default-profile consequence is the one sentence that survives the fold.
  *
  * Writes go through `setAiConfig`, but main writes the file verbatim and only
  * validates on the way back IN — so this panel runs the same `validateAiConfig`
@@ -61,6 +86,7 @@ import {
 } from '@archspace/ai-gateway';
 import { useStore } from '../../store';
 import { probeAiProfile, requestEngineStatus } from '../../engine-client';
+import { groupProfilesByProvider, unboundProviders, worstReadiness } from '../../ai-groups';
 import type { SecretKeyInfo } from '../../../../shared/protocol';
 import type { SettingsPanelProps } from '../Settings';
 
@@ -98,6 +124,11 @@ function badgeClass(readiness: ProfileStatus['readiness']): string {
   }
 }
 
+/**
+ * `bound`, not `connected`. Nothing this panel computes has spoken to a
+ * provider — see the header's second load-bearing line — and a word that
+ * implied otherwise would be a claim the panel had not paid for.
+ */
 const READINESS_LABEL: Record<ProfileStatus['readiness'], string> = {
   ready: 'bound',
   'missing-key': 'missing key',
@@ -111,15 +142,18 @@ const READINESS_LABEL: Record<ProfileStatus['readiness'], string> = {
  * not instead of it: the engine's sentence explains this profile, and this one
  * explains the state — including, for `missing-key`, the exact key name the
  * profile expects, which is the single fact needed to fix it.
+ *
+ * Not rendered for `ready`: the badge already says that, and a sentence
+ * repeating a badge is the crowding this panel was reshaped to remove.
  */
 function explainReadiness(status: ProfileStatus, profile: ModelProfile): string {
   switch (status.readiness) {
     case 'ready':
-      return 'Provider, model and key all resolve on this machine. That is a check of the binding, not of the provider — probe it to see whether anything answers.';
+      return 'Provider, model and key all resolve on this machine. That is a check of the binding, not of the provider — test it to see whether anything answers.';
     case 'missing-key':
       return profile.apiKeyRef === undefined
-        ? `This provider needs an API key and the profile names none. Give it a key reference (a name like "ai.${profile.provider}.api_key"), then store a value for that name under API keys below.`
-        : `No value is stored under the key "${profile.apiKeyRef}" on this machine. That name is what this profile asks the keychain for — store a value for exactly that key below.`;
+        ? `This provider needs an API key and the profile names none. Give it a key reference (a name like "ai.${profile.provider}.api_key"), then store a value for that name.`
+        : `No value is stored under the key "${profile.apiKeyRef}" on this machine. That name is what this profile asks the keychain for — store a value for exactly that key.`;
     case 'unreachable':
       return 'A real call to the provider did not get through. The binding is complete; the endpoint, the network or the credential is not.';
     case 'unknown':
@@ -140,12 +174,6 @@ function kindSentence(kind: ProviderDescriptor['kind']): string {
       return 'Offline test provider — scripted answers, no network call of any kind.';
   }
 }
-
-const KIND_LABEL: Record<ProviderDescriptor['kind'], string> = {
-  cloud: 'cloud',
-  local: 'local',
-  test: 'test',
-};
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -207,6 +235,28 @@ function blankDraft(): Draft {
     temperature: '',
     maxOutputTokens: '',
   };
+}
+
+/**
+ * A name for a profile being added for a named provider.
+ *
+ * `default` first, and not as a nicety: every AI node's `profile` param
+ * defaults to the literal string `default` (nodes-core/ai-common.ts), and the
+ * gateway resolves that name exactly — so a machine whose first profile is
+ * called something else answers every out-of-the-box workflow with "unknown
+ * profile". Once `default` is taken the provider id is the obvious second
+ * choice, then a numbered suffix; all three are shown in the editor's Name
+ * field before anything is written, because a generated name the user never
+ * saw is a name they cannot later recognise in a workflow.
+ */
+function suggestProfileName(existing: readonly ModelProfile[], id: ProviderId): string {
+  const taken = new Set(existing.map((p) => p.name));
+  if (!taken.has('default')) return 'default';
+  if (!taken.has(id)) return id;
+  for (let n = 2; ; n++) {
+    const candidate = `${id}-${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
 }
 
 type NumberField = { kind: 'blank' } | { kind: 'value'; value: number } | { kind: 'bad' };
@@ -287,6 +337,15 @@ export function AiPanel(props: SettingsPanelProps) {
   const [probes, setProbes] = useState<Record<string, ProfileProbeResult>>({});
   const [probing, setProbing] = useState<string | null>(null);
 
+  /** Which provider rows are open. Collapsed is the resting state. */
+  const [expanded, setExpanded] = useState<Set<ProviderId>>(new Set());
+  const toggleExpanded = (id: ProviderId): void =>
+    setExpanded((open) => {
+      const next = new Set(open);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+
   // The editor renders below the list, and the dialog body scrolls: on a long
   // list, "Edit" would otherwise open a form the user cannot see.
   const editorRef = useRef<HTMLDivElement>(null);
@@ -324,6 +383,20 @@ export function AiPanel(props: SettingsPanelProps) {
     requestEngineStatus();
   }, [loadConfig, loadSecretKeys]);
 
+  /**
+   * Re-read everything this panel shows.
+   *
+   * The old panel's only reload sat inside the `configError` branch, so a file
+   * that READ fine but parsed badly — the case the issues list is about — had
+   * no route back except closing the dialog. Disabled while a draft is open,
+   * because reloading under an unsaved edit would discard it silently.
+   */
+  const reload = useCallback(() => {
+    loadConfig();
+    loadSecretKeys();
+    requestEngineStatus();
+  }, [loadConfig, loadSecretKeys]);
+
   const statusByName = useMemo(() => {
     const map = new Map<string, ProfileStatus>();
     for (const status of aiProfiles) map.set(status.name, status);
@@ -335,6 +408,9 @@ export function AiPanel(props: SettingsPanelProps) {
     for (const info of secretKeys ?? []) map.set(info.key, info);
     return map;
   }, [secretKeys]);
+
+  const groups = useMemo(() => groupProfilesByProvider(config?.profiles ?? []), [config]);
+  const unbound = useMemo(() => unboundProviders(config?.profiles ?? []), [config]);
 
   /** Every key name this config asks the keychain for, in profile order. */
   const referencedKeys = useMemo(() => {
@@ -388,6 +464,32 @@ export function AiPanel(props: SettingsPanelProps) {
     },
     [notify],
   );
+
+  const openDraft = (next: Draft): void => {
+    setDraft(next);
+    setDraftErrors([]);
+    setIssues([]);
+    setSaveError(null);
+  };
+
+  /**
+   * Start a profile for one provider, with the fields the editor will show
+   * filled in. Only visible fields are pre-filled — a value written into
+   * `ai.yaml` that never appeared on screen is a value the user cannot account
+   * for later. `openai-compatible` ships no suggested models on purpose
+   * (providers.ts: only the endpoint knows what it serves), so its model stays
+   * blank and Save stays blocked until one is typed.
+   */
+  const addForProvider = (descriptor: ProviderDescriptor): void => {
+    openDraft({
+      ...blankDraft(),
+      name: suggestProfileName(config?.profiles ?? [], descriptor.id),
+      provider: descriptor.id,
+      model: descriptor.suggestedModels[0] ?? '',
+      apiKeyRef: descriptor.needsApiKey ? `ai.${descriptor.id}.api_key` : '',
+    });
+    setExpanded((open) => new Set(open).add(descriptor.id));
+  };
 
   const saveDraft = () => {
     if (config === null || draft === null) return;
@@ -495,6 +597,44 @@ export function AiPanel(props: SettingsPanelProps) {
   const blockingIssues = issues.filter((i) => i.severity === 'error');
   const warningIssues = issues.filter((i) => i.severity === 'warning');
 
+  /** The write-only key control, wherever a single key name is being shown. */
+  const keyField = (ref: string) => {
+    const info = keyInfoByName.get(ref);
+    return (
+      <>
+        <input
+          id={`ai-secret-${ref}`}
+          className="settings-input settings-input--mono"
+          type="password"
+          value={keyDrafts[ref] ?? ''}
+          spellCheck={false}
+          autoComplete="off"
+          disabled={!props.platform.secretsAvailable || keyBusy !== null}
+          placeholder={info ? 'a value is stored — type a new one to replace it' : 'paste the key'}
+          onChange={(e) => setKeyDrafts((d) => ({ ...d, [ref]: e.target.value }))}
+        />
+        <button
+          className="settings-btn settings-btn--small"
+          disabled={
+            !props.platform.secretsAvailable || keyBusy !== null || (keyDrafts[ref] ?? '') === ''
+          }
+          onClick={() => storeSecret(ref)}
+        >
+          {keyBusy === ref ? (
+            <>
+              <span className="settings-spinner" /> Storing…
+            </>
+          ) : (
+            'Store'
+          )}
+        </button>
+        <span className={info ? 'badge badge--ok' : 'badge badge--warn'}>
+          {info ? 'stored' : 'not stored'}
+        </span>
+      </>
+    );
+  };
+
   return (
     <div className="settings-panel">
       {/* ---- what a profile is, and where it is written ------------------ */}
@@ -502,18 +642,17 @@ export function AiPanel(props: SettingsPanelProps) {
         <div className="settings-section-head">
           <h3 className="settings-heading">AI Model Profiles</h3>
           {config !== null && (
+            // Profiles AND providers, because the rows below are providers: a
+            // file with four bindings on two providers must not read as two.
             <span className="settings-item-meta">
-              {config.profiles.length} profile{config.profiles.length === 1 ? '' : 's'} · default:{' '}
+              {config.profiles.length} profile{config.profiles.length === 1 ? '' : 's'} across{' '}
+              {groups.length} provider{groups.length === 1 ? '' : 's'} · default:{' '}
               {config.defaultProfile}
             </span>
           )}
         </div>
         <p className="settings-section-desc">
-          Workflows reference named profiles — <span className="mono">default</span>,{' '}
-          <span className="mono">fast</span>, <span className="mono">reasoning</span> — never a
-          provider or a model id. Each profile binds a name to a provider, a model and a key held in
-          the OS keychain, so a workflow written by someone on a cloud provider runs unchanged here
-          against a local one. These bindings are machine-local and are never saved into a document.
+          A workflow names a profile; this machine says what that name means.
         </p>
         <div className="settings-path">
           <span className="settings-code" title={props.platform.paths.aiConfig}>
@@ -525,58 +664,23 @@ export function AiPanel(props: SettingsPanelProps) {
           >
             Reveal
           </button>
+          <button className="settings-btn settings-btn--small" disabled={draft !== null} onClick={reload}>
+            Reload
+          </button>
         </div>
-        {/* The bridge hands this panel `getAiConfig()`'s RESULT and drops the
-            validator's issues (main/index.ts: `settings:get-ai`), so a config
-            that came out of the fallback path is byte-for-byte indistinguishable
-            here from one the file really says. Saying so is the only honest move
-            available from this side; carrying the issues across the bridge is the
-            real fix and is not this panel's to make. */}
-        <div className="settings-note settings-note--unimplemented">
-          What this panel cannot tell you about that file. If it will not parse, or holds no usable
-          profile, the app falls back to its built-in profiles for the session and leaves your file
-          untouched — and only the resulting config reaches this window, never the reason, so a
-          fallback list looks exactly like a file that really says this. Single entries the
-          validator refuses outright — no name, an unknown provider id, a duplicate name — are
-          dropped just as quietly. Until those reasons reach this screen, read the file itself
-          before trusting a list that surprises you: saving from here writes what you see over
-          what is in it.
-        </div>
+
         {!engineReady && (
           <div className="settings-note settings-note--warn">
             The engine is not connected, so no binding below has been checked against the keychain
-            or against a provider. Profiles can still be edited — this panel reads and writes the
-            file — but every readiness shown is unknown rather than good.
+            or a provider. Profiles can still be edited — this panel reads and writes the file — but
+            every readiness below is unknown rather than good.
           </div>
         )}
-      </div>
-
-      {/* ---- the profiles ------------------------------------------------ */}
-      <div className="settings-section">
-        <div className="settings-section-head">
-          <h4 className="settings-subheading">Profiles</h4>
-          <div className="settings-actions">
-            <button
-              className="settings-btn settings-btn--small"
-              disabled={config === null || draft !== null}
-              onClick={() => {
-                setDraft(blankDraft());
-                setDraftErrors([]);
-                setIssues([]);
-                setSaveError(null);
-              }}
-            >
-              Add profile
-            </button>
-          </div>
-        </div>
-
         {configIssues.length > 0 && (
           <div className="settings-note settings-note--warn">
             <strong>ai.yaml was not fully understood.</strong> Everything the validator
             could not read was skipped, so a profile you wrote may be missing below or
-            may be showing a generated fallback rather than your own settings. Fix the
-            file and reopen this panel.
+            may be showing a generated fallback rather than your own settings.
             <ul className="settings-issue-list">
               {configIssues.map((issue) => (
                 <li key={issue}>{issue}</li>
@@ -584,26 +688,21 @@ export function AiPanel(props: SettingsPanelProps) {
             </ul>
           </div>
         )}
-
         {configError !== null && (
-          <>
-            <div className="settings-note settings-note--error">
-              Could not read the AI configuration: {configError}
-            </div>
-            <div className="settings-actions">
-              <button className="settings-btn settings-btn--small" onClick={loadConfig}>
-                Try again
-              </button>
-            </div>
-          </>
-        )}
-
-        {config === null && configError === null && (
-          <div className="settings-loading">
-            <span className="settings-spinner" /> Reading {props.platform.paths.aiConfig}…
+          <div className="settings-note settings-note--error">
+            Could not read the AI configuration: {configError}
           </div>
         )}
-
+        {!props.platform.secretsAvailable && (
+          <div className="settings-note settings-note--warn">
+            This machine's keychain is not backing the app's encrypted store, so storing a secret
+            would be refused. Any profile needing a key will keep reporting "missing key" until that
+            is fixed; a local provider that needs no key works regardless.
+          </div>
+        )}
+        {secretsError !== null && <div className="settings-note settings-note--error">{secretsError}</div>}
+        {/* These three describe the FILE, not a binding, so they are stated
+            once here rather than repeated into whichever row was touched. */}
         {blockingIssues.length > 0 && (
           <div className="settings-note settings-note--error">
             Not saved. This is what the same validator says would happen to the file on its way
@@ -634,6 +733,28 @@ export function AiPanel(props: SettingsPanelProps) {
         {saveError !== null && (
           <div className="settings-note settings-note--error">Could not write the file: {saveError}</div>
         )}
+      </div>
+
+      {/* ---- one row per provider ---------------------------------------- */}
+      <div className="settings-section">
+        <div className="settings-section-head">
+          <h4 className="settings-subheading">Providers on this machine</h4>
+          <div className="settings-actions">
+            <button
+              className="settings-btn settings-btn--small"
+              disabled={config === null || draft !== null}
+              onClick={() => openDraft(blankDraft())}
+            >
+              Add profile
+            </button>
+          </div>
+        </div>
+
+        {config === null && configError === null && (
+          <div className="settings-loading">
+            <span className="settings-spinner" /> Reading {props.platform.paths.aiConfig}…
+          </div>
+        )}
 
         {config !== null && config.profiles.length === 0 && (
           <div className="settings-empty">
@@ -645,242 +766,447 @@ export function AiPanel(props: SettingsPanelProps) {
           </div>
         )}
 
-        {config !== null && (
+        {config !== null && groups.length > 0 && (
           <div className="settings-list">
-            {config.profiles.map((profile) => {
-              const status = statusByName.get(profile.name);
-              const provider = providerById(profile.provider);
-              const probe = probes[profile.name];
-              const isDefault = profile.name === config.defaultProfile;
-              const stripe = engineReady && status ? stripeClass(status.readiness) : 'is-muted';
+            {groups.map((group) => {
+              const known = group.profiles
+                .map((p) => statusByName.get(p.name))
+                .filter((s): s is ProfileStatus => s !== undefined);
+              const allReported = known.length === group.profiles.length;
+              const worst = worstReadiness(known.map((s) => s.readiness));
+              const stripe = engineReady && allReported ? stripeClass(worst) : 'is-muted';
+              const holdsDefault = group.profiles.some((p) => p.name === config.defaultProfile);
+              const isOpen = expanded.has(group.id);
+              const single = group.profiles.length === 1 ? group.profiles[0] : null;
+              const draftsHere = draft !== null && draft.provider === group.id;
+              const mockIsDefault = group.descriptor.kind === 'test' && holdsDefault;
+
               return (
-                <div key={profile.name} className={`settings-list-item ${stripe}`}>
+                <div key={group.id} className={`settings-list-item ${stripe}`}>
                   <div className="settings-item-head">
-                    <span className="settings-item-name">{profile.name}</span>
-                    {isDefault && <span className="badge badge--info">default</span>}
+                    <span className="settings-item-name">{group.descriptor.label}</span>
                     {!engineReady ? (
                       <span className="badge badge--muted" title="The engine has not reported.">
                         no engine
                       </span>
-                    ) : status === undefined ? (
-                      <span className="badge badge--info">not reported yet</span>
+                    ) : known.length === 0 ? (
+                      <span
+                        className="badge badge--info"
+                        title="Readiness appears as soon as the engine picks the new config up."
+                      >
+                        not reported yet
+                      </span>
                     ) : (
-                      <span className={badgeClass(status.readiness)}>{READINESS_LABEL[status.readiness]}</span>
+                      worst !== null && <span className={badgeClass(worst)}>{READINESS_LABEL[worst]}</span>
                     )}
-                    {provider?.kind === 'test' && (
+                    {group.descriptor.kind === 'test' && (
                       <span className="badge badge--unimplemented" title={kindSentence('test')}>
                         no network
                       </span>
                     )}
+                    {holdsDefault && <span className="badge badge--info">default</span>}
+                    {draftsHere && <span className="badge badge--warn">unsaved</span>}
                     <span className="settings-item-meta">
-                      {provider?.label ?? profile.provider} · {profile.model}
+                      {single !== null
+                        ? `${single.name} · ${single.model}`
+                        : `${group.profiles.length} profiles${holdsDefault ? ' · default lives here' : ''}`}
                     </span>
                     <div className="settings-item-actions">
-                      <button
-                        className="settings-btn settings-btn--small"
-                        disabled={!engineReady || probing !== null}
-                        title={
-                          engineReady
-                            ? 'Make one real, minimal call through this profile'
-                            : 'The engine is not connected'
-                        }
-                        onClick={() => runProbe(profile.name)}
-                      >
-                        {probing === profile.name ? (
-                          <>
-                            <span className="settings-spinner" /> Probing…
-                          </>
-                        ) : (
-                          'Probe'
-                        )}
-                      </button>
-                      {!isDefault && (
+                      {/* Only meaningful for one binding: with several, "test
+                          which?" has no answer, so Test moves inside. */}
+                      {single !== null && (
                         <button
                           className="settings-btn settings-btn--small"
-                          disabled={saving}
-                          onClick={() => makeDefault(profile.name)}
+                          disabled={!engineReady || probing !== null}
+                          title={
+                            engineReady
+                              ? 'Make one real, minimal call through this profile'
+                              : 'The engine is not connected'
+                          }
+                          onClick={() => runProbe(single.name)}
                         >
-                          Make default
+                          {probing === single.name ? (
+                            <>
+                              <span className="settings-spinner" /> Testing…
+                            </>
+                          ) : (
+                            'Test'
+                          )}
                         </button>
                       )}
                       <button
                         className="settings-btn settings-btn--small"
-                        disabled={saving}
-                        onClick={() => {
-                          setDraft(draftFor(profile));
-                          setDraftErrors([]);
-                          setIssues([]);
-                          setSaveError(null);
-                        }}
+                        aria-expanded={isOpen}
+                        onClick={() => toggleExpanded(group.id)}
                       >
-                        Edit
+                        {isOpen ? 'Less' : 'Details'}
                       </button>
-                      {confirmRemove === profile.name ? (
-                        <>
-                          <button
-                            className="settings-btn settings-btn--small settings-btn--danger"
-                            disabled={saving}
-                            onClick={() => removeProfile(profile.name)}
-                          >
-                            Really remove
-                          </button>
+                    </div>
+                  </div>
+
+                  {/* The key line: the one thing most visits to this panel are
+                      for, so it sits outside the fold. */}
+                  <div className="ai-key-line">
+                    {group.keyRefs.length === 1 ? (
+                      <>
+                        <span className="settings-code" title={group.keyRefs[0]}>
+                          {group.keyRefs[0]}
+                        </span>
+                        {keyField(group.keyRefs[0])}
+                      </>
+                    ) : group.keyRefs.length > 1 ? (
+                      // Refused on purpose: apiKeyRef is per profile. One field
+                      // here would say keys are per provider, which is false.
+                      <span className="settings-item-meta">
+                        {group.keyRefs.length} key names ·{' '}
+                        {group.keyRefs.filter((ref) => keyInfoByName.has(ref)).length} stored — open
+                        Details to set them
+                      </span>
+                    ) : group.descriptor.needsApiKey ? (
+                      <>
+                        <span className="settings-item-meta">
+                          No key name yet — this provider needs one.
+                        </span>
+                        {single !== null && (
                           <button
                             className="settings-btn settings-btn--small"
-                            onClick={() => setConfirmRemove(null)}
+                            disabled={saving || draft !== null}
+                            onClick={() =>
+                              openDraft({
+                                ...draftFor(single),
+                                apiKeyRef: `ai.${group.id}.api_key`,
+                              })
+                            }
                           >
-                            Keep
+                            Fix
                           </button>
-                        </>
-                      ) : (
-                        <button
-                          className="settings-btn settings-btn--small settings-btn--danger"
-                          disabled={saving}
-                          onClick={() => setConfirmRemove(profile.name)}
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="settings-item-body">
-                    {provider?.kind === 'test' && (
-                      <div className="settings-note settings-note--unimplemented">
-                        This profile calls nothing. The <span className="mono">mock</span> provider
-                        returns deterministic scripted text for offline demos and CI — a successful
-                        probe here proves this app works, not that any model or provider does.
-                        {/* ADR-0010 §4 says the mock provider is never a default. If the file
-                            makes it one anyway, the consequence is every AI node in every
-                            workflow, so it is said here rather than left to be inferred from
-                            two badges sitting next to each other. */}
-                        {isDefault && (
-                          <>
-                            {' '}
-                            <strong>
-                              It is also the default profile, so every workflow that does not name
-                              another one is answered by that scripted text and never reaches a
-                              model.
-                            </strong>
-                          </>
                         )}
-                      </div>
-                    )}
-                    {provider !== undefined && provider.kind !== 'test' && (
-                      <div className="settings-item-desc">{kindSentence(provider.kind)}</div>
-                    )}
-                    {!engineReady ? (
-                      <div className="settings-item-desc">
-                        Readiness unknown — nothing has checked this binding.
-                      </div>
-                    ) : status === undefined ? (
-                      <div className="settings-item-desc">
-                        The engine has not reported on this profile yet. If it was just added, its
-                        readiness appears as soon as the engine picks the new config up.
-                      </div>
+                      </>
                     ) : (
-                      <>
-                        <div className="settings-item-desc">{explainReadiness(status, profile)}</div>
-                        {status.detail !== undefined && (
-                          <div className="settings-item-desc mono">Engine: {status.detail}</div>
-                        )}
-                      </>
-                    )}
-
-                    <div className="settings-kv">
-                      <span className="settings-kv-key">Provider</span>
-                      <span className="settings-kv-value">
-                        {provider?.label ?? profile.provider}{' '}
-                        <span className="mono">({profile.provider})</span>
+                      <span className="settings-item-meta">
+                        No key needed ·{' '}
+                        {single?.baseUrl ?? group.descriptor.defaultBaseUrl ?? 'endpoint set per profile'}
                       </span>
-                      <span className="settings-kv-key">Model</span>
-                      <span className="settings-kv-value mono">{profile.model}</span>
-                      {profile.baseUrl !== undefined && (
-                        <>
-                          <span className="settings-kv-key">Endpoint</span>
-                          <span className="settings-kv-value mono">{profile.baseUrl}</span>
-                        </>
-                      )}
-                      {profile.baseUrl === undefined && provider?.defaultBaseUrl !== undefined && (
-                        <>
-                          <span className="settings-kv-key">Endpoint</span>
-                          <span className="settings-kv-value mono">
-                            {provider.defaultBaseUrl} (provider default)
-                          </span>
-                        </>
-                      )}
-                      <span className="settings-kv-key">Key ref</span>
-                      <span className="settings-kv-value mono">
-                        {profile.apiKeyRef ?? (provider?.needsApiKey ? 'none — this provider needs one' : 'none needed')}
-                      </span>
-                      {profile.embeddingModel !== undefined && (
-                        <>
-                          <span className="settings-kv-key">Embeddings</span>
-                          <span className="settings-kv-value mono">{profile.embeddingModel}</span>
-                        </>
-                      )}
-                      {profile.temperature !== undefined && (
-                        <>
-                          <span className="settings-kv-key">Temperature</span>
-                          <span className="settings-kv-value mono">{profile.temperature}</span>
-                        </>
-                      )}
-                      {profile.maxOutputTokens !== undefined && (
-                        <>
-                          <span className="settings-kv-key">Max output</span>
-                          <span className="settings-kv-value mono">{profile.maxOutputTokens} tokens</span>
-                        </>
-                      )}
-                      {profile.headers !== undefined && (
-                        <>
-                          <span className="settings-kv-key">Headers</span>
-                          <span className="settings-kv-value">
-                            <span className="settings-tags">
-                              {Object.entries(profile.headers).map(([header, value]) => (
-                                <span key={header} className="settings-tag">
-                                  {header}: {value}
-                                </span>
-                              ))}
-                            </span>
-                          </span>
-                        </>
-                      )}
-                    </div>
-
-                    {probe !== undefined && (
-                      <>
-                        <div className="settings-item-head">
-                          <span className={probe.ok ? 'badge badge--ok' : 'badge badge--error'}>
-                            {probe.ok ? 'probe answered' : 'probe failed'}
-                          </span>
-                          {probe.latencyMs !== undefined && (
-                            <span className="settings-item-meta">{probe.latencyMs} ms round trip</span>
-                          )}
-                          {provider?.kind === 'test' && (
-                            <span className="settings-item-meta">
-                              scripted answer — nothing left this machine
-                            </span>
-                          )}
-                        </div>
-                        <div className="settings-kv">
-                          {probe.sample !== undefined && (
-                            <>
-                              <span className="settings-kv-key">Returned</span>
-                              <span className="settings-kv-value mono">{probe.sample}</span>
-                            </>
-                          )}
-                          {probe.error !== undefined && (
-                            <>
-                              <span className="settings-kv-key">Error</span>
-                              <span className="settings-kv-value">{probe.error}</span>
-                            </>
-                          )}
-                        </div>
-                      </>
                     )}
                   </div>
+
+                  {/* ADR-0010 §4 says the mock provider is never a default. If
+                      the file makes it one anyway, the consequence reaches every
+                      AI node in every workflow — so this one sentence is not
+                      allowed to hide behind a disclosure. */}
+                  {mockIsDefault && (
+                    <div className="settings-note settings-note--unimplemented">
+                      <strong>
+                        The default profile is a mock, so every workflow that does not name another
+                        one is answered by scripted text and never reaches a model.
+                      </strong>
+                    </div>
+                  )}
+
+                  {isOpen && (
+                    <div className="settings-item-body">
+                      <div className="settings-item-desc">{group.descriptor.summary}</div>
+                      <div className="settings-item-desc">{kindSentence(group.descriptor.kind)}</div>
+                      {isExternalUrl(group.descriptor.docsUrl) ? (
+                        <button
+                          className="settings-link"
+                          onClick={() => void window.archspace.openExternal(group.descriptor.docsUrl)}
+                        >
+                          {group.descriptor.docsUrl}
+                        </button>
+                      ) : (
+                        <div className="settings-path">
+                          <span className="settings-code">{group.descriptor.docsUrl}</span>
+                        </div>
+                      )}
+
+                      {group.keyRefs.length > 1 && (
+                        <div className="ai-bindings">
+                          {group.keyRefs.map((ref) => {
+                            const users = group.profiles
+                              .filter((p) => p.apiKeyRef === ref)
+                              .map((p) => p.name);
+                            return (
+                              <div key={ref} className="ai-binding">
+                                <div className="settings-item-head">
+                                  <span className="settings-item-name mono">{ref}</span>
+                                  <span className="settings-item-meta">
+                                    Used by {users.map((n) => `"${n}"`).join(', ')}
+                                  </span>
+                                  <div className="settings-item-actions">
+                                    {keyInfoByName.has(ref) && (
+                                      <button
+                                        className="settings-btn settings-btn--small settings-btn--danger"
+                                        disabled={keyBusy !== null}
+                                        onClick={() => deleteSecret(ref)}
+                                      >
+                                        Delete key
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="ai-key-line">{keyField(ref)}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {group.keyRefs.length === 1 && (
+                        <div className="settings-item-desc">
+                          Used by{' '}
+                          {group.profiles
+                            .filter((p) => p.apiKeyRef === group.keyRefs[0])
+                            .map((p) => `"${p.name}"`)
+                            .join(', ')}
+                          .{' '}
+                          {keyInfoByName.has(group.keyRefs[0]) && (
+                            <button
+                              className="settings-btn settings-btn--small settings-btn--danger"
+                              disabled={keyBusy !== null}
+                              onClick={() => deleteSecret(group.keyRefs[0])}
+                            >
+                              Delete key
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="ai-bindings">
+                        {group.profiles.map((profile) => {
+                          const status = statusByName.get(profile.name);
+                          const probe = probes[profile.name];
+                          const isDefault = profile.name === config.defaultProfile;
+                          return (
+                            <div key={profile.name} className="ai-binding">
+                              <div className="settings-item-head">
+                                <span className="settings-item-name">{profile.name}</span>
+                                {isDefault && <span className="badge badge--info">default</span>}
+                                {engineReady && status !== undefined && (
+                                  <span className={badgeClass(status.readiness)}>
+                                    {READINESS_LABEL[status.readiness]}
+                                  </span>
+                                )}
+                                <span className="settings-item-meta mono">{profile.model}</span>
+                                <div className="settings-item-actions">
+                                  <button
+                                    className="settings-btn settings-btn--small"
+                                    disabled={!engineReady || probing !== null}
+                                    title={
+                                      engineReady
+                                        ? 'Make one real, minimal call through this profile'
+                                        : 'The engine is not connected'
+                                    }
+                                    onClick={() => runProbe(profile.name)}
+                                  >
+                                    {probing === profile.name ? (
+                                      <>
+                                        <span className="settings-spinner" /> Testing…
+                                      </>
+                                    ) : (
+                                      'Test'
+                                    )}
+                                  </button>
+                                  {!isDefault && (
+                                    <button
+                                      className="settings-btn settings-btn--small"
+                                      disabled={saving}
+                                      onClick={() => makeDefault(profile.name)}
+                                    >
+                                      Make default
+                                    </button>
+                                  )}
+                                  <button
+                                    className="settings-btn settings-btn--small"
+                                    disabled={saving}
+                                    onClick={() => openDraft(draftFor(profile))}
+                                  >
+                                    Edit
+                                  </button>
+                                  {confirmRemove === profile.name ? (
+                                    <>
+                                      <button
+                                        className="settings-btn settings-btn--small settings-btn--danger"
+                                        disabled={saving}
+                                        onClick={() => removeProfile(profile.name)}
+                                      >
+                                        Really remove
+                                      </button>
+                                      <button
+                                        className="settings-btn settings-btn--small"
+                                        onClick={() => setConfirmRemove(null)}
+                                      >
+                                        Keep
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      className="settings-btn settings-btn--small settings-btn--danger"
+                                      disabled={saving}
+                                      onClick={() => setConfirmRemove(profile.name)}
+                                    >
+                                      Remove
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {group.descriptor.kind === 'test' && (
+                                <div className="settings-note settings-note--unimplemented">
+                                  This profile calls nothing. The <span className="mono">mock</span>{' '}
+                                  provider returns deterministic scripted text for offline demos and
+                                  CI — a successful test here proves this app works, not that any
+                                  model or provider does.
+                                </div>
+                              )}
+                              {engineReady && status !== undefined && status.readiness !== 'ready' && (
+                                <>
+                                  <div className="settings-item-desc">
+                                    {explainReadiness(status, profile)}
+                                  </div>
+                                  {status.detail !== undefined && (
+                                    <div className="settings-item-desc mono">
+                                      Engine: {status.detail}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+
+                              {/* Only what the collapsed row has not said. */}
+                              <div className="settings-kv">
+                                {profile.baseUrl !== undefined && (
+                                  <>
+                                    <span className="settings-kv-key">Endpoint</span>
+                                    <span className="settings-kv-value mono">{profile.baseUrl}</span>
+                                  </>
+                                )}
+                                <span className="settings-kv-key">Key ref</span>
+                                <span className="settings-kv-value mono">
+                                  {profile.apiKeyRef ??
+                                    (group.descriptor.needsApiKey
+                                      ? 'none — this provider needs one'
+                                      : 'none needed')}
+                                </span>
+                                {profile.embeddingModel !== undefined && (
+                                  <>
+                                    <span className="settings-kv-key">Embeddings</span>
+                                    <span className="settings-kv-value mono">{profile.embeddingModel}</span>
+                                  </>
+                                )}
+                                {profile.temperature !== undefined && (
+                                  <>
+                                    <span className="settings-kv-key">Temperature</span>
+                                    <span className="settings-kv-value mono">{profile.temperature}</span>
+                                  </>
+                                )}
+                                {profile.maxOutputTokens !== undefined && (
+                                  <>
+                                    <span className="settings-kv-key">Max output</span>
+                                    <span className="settings-kv-value mono">
+                                      {profile.maxOutputTokens} tokens
+                                    </span>
+                                  </>
+                                )}
+                                {profile.headers !== undefined && (
+                                  <>
+                                    <span className="settings-kv-key">Headers</span>
+                                    <span className="settings-kv-value">
+                                      <span className="settings-tags">
+                                        {Object.entries(profile.headers).map(([header, value]) => (
+                                          <span key={header} className="settings-tag">
+                                            {header}: {value}
+                                          </span>
+                                        ))}
+                                      </span>
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+
+                              {probe !== undefined && (
+                                <>
+                                  <div className="settings-item-head">
+                                    <span className={probe.ok ? 'badge badge--ok' : 'badge badge--error'}>
+                                      {probe.ok ? 'answered' : 'failed'}
+                                    </span>
+                                    {probe.latencyMs !== undefined && (
+                                      <span className="settings-item-meta">
+                                        {probe.latencyMs} ms round trip
+                                      </span>
+                                    )}
+                                    {group.descriptor.kind === 'test' && (
+                                      <span className="settings-item-meta">
+                                        scripted answer — nothing left this machine
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="settings-kv">
+                                    {probe.sample !== undefined && (
+                                      <>
+                                        <span className="settings-kv-key">Returned</span>
+                                        <span className="settings-kv-value mono">{probe.sample}</span>
+                                      </>
+                                    )}
+                                    {probe.error !== undefined && (
+                                      <>
+                                        <span className="settings-kv-key">Error</span>
+                                        <span className="settings-kv-value">{probe.error}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="settings-actions">
+                        <button
+                          className="settings-btn settings-btn--small"
+                          disabled={config === null || draft !== null}
+                          onClick={() => addForProvider(group.descriptor)}
+                        >
+                          + Add another {group.descriptor.label} profile
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Whether anything is bound is a fact about the FILE, so this line
+            stays true and useful with the engine dead. */}
+        {config !== null && unbound.length > 0 && (
+          <div className="ai-unbound">
+            <span className="settings-item-meta">Not bound on this machine:</span>
+            {unbound.map((provider) => (
+              <button
+                key={provider.id}
+                className="settings-btn settings-btn--small"
+                disabled={draft !== null}
+                title={
+                  provider.kind === 'test'
+                    ? kindSentence('test')
+                    : `${provider.summary} ${kindSentence(provider.kind)}`
+                }
+                onClick={() => addForProvider(provider)}
+              >
+                {provider.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {unreferencedKeys.length > 0 && (
+          <div className="settings-note settings-note--info">
+            This machine also holds {unreferencedKeys.length} key
+            {unreferencedKeys.length === 1 ? '' : 's'} that no AI profile names —{' '}
+            {unreferencedKeys.map((info) => info.key).join(', ')}. They may belong to another
+            settings section, so they are listed rather than managed from here.
           </div>
         )}
       </div>
@@ -896,9 +1222,11 @@ export function AiPanel(props: SettingsPanelProps) {
 
           {draftErrors.length > 0 && (
             <div className="settings-note settings-note--error">
-              {draftErrors.map((message) => (
-                <div key={message}>{message}</div>
-              ))}
+              <ul className="settings-issue-list">
+                {draftErrors.map((problem) => (
+                  <li key={problem}>{problem}</li>
+                ))}
+              </ul>
             </div>
           )}
 
@@ -918,9 +1246,8 @@ export function AiPanel(props: SettingsPanelProps) {
               />
             </div>
             <div className="settings-row-hint">
-              What a workflow asks for. Lowercase letters, digits, <span className="mono">_</span>{' '}
-              and <span className="mono">-</span>; renaming one changes what every workflow naming it
-              resolves to on this machine.
+              What a workflow asks for. Nodes ask for <span className="mono">default</span> unless
+              told otherwise, so the first profile on a machine should usually keep that name.
             </div>
           </div>
 
@@ -931,19 +1258,15 @@ export function AiPanel(props: SettingsPanelProps) {
             <div className="settings-row-control">
               <select
                 id="ai-profile-provider"
-                className="settings-select"
+                className="settings-input"
                 value={draft.provider}
                 onChange={(e) => {
-                  const next = providerById(e.target.value);
-                  if (next === undefined) return;
+                  const next = providerById(e.target.value) ?? PROVIDERS[0];
                   setDraft({
                     ...draft,
                     provider: next.id,
-                    // Offer the conventional key name for the provider just
-                    // chosen, but only into an empty field: overwriting a name
-                    // the user typed would silently re-point their binding at a
-                    // different keychain entry.
-                    apiKeyRef: next.needsApiKey && draft.apiKeyRef === '' ? `ai.${next.id}.api_key` : draft.apiKeyRef,
+                    apiKeyRef:
+                      next.needsApiKey && draft.apiKeyRef === '' ? `ai.${next.id}.api_key` : draft.apiKeyRef,
                   });
                 }}
               >
@@ -954,11 +1277,9 @@ export function AiPanel(props: SettingsPanelProps) {
                 ))}
               </select>
             </div>
-            {descriptor !== undefined && (
-              <div className="settings-row-hint">
-                {descriptor.summary} {kindSentence(descriptor.kind)}
-              </div>
-            )}
+            <div className="settings-row-hint">
+              {descriptor !== undefined && `${descriptor.summary} ${kindSentence(descriptor.kind)}`}
+            </div>
           </div>
 
           <div className="settings-row">
@@ -1037,11 +1358,8 @@ export function AiPanel(props: SettingsPanelProps) {
             </div>
             <div className="settings-row-hint">
               A NAME for a keychain entry, never the credential itself — the file this writes is
-              plain text on disk, and a pasted key is refused by the validator. Store the value
-              itself under API keys below.
-              {descriptor?.needsApiKey === true
-                ? ' This provider needs one; without it the profile reports "missing key".'
-                : ' This provider does not need one — leave it blank unless your endpoint requires a bearer token.'}
+              plain text on disk, and a pasted key is refused by the validator. The value goes in
+              the key field on the provider row.
             </div>
           </div>
 
@@ -1056,15 +1374,12 @@ export function AiPanel(props: SettingsPanelProps) {
                 value={draft.embeddingModel}
                 spellCheck={false}
                 autoComplete="off"
+                placeholder={descriptor?.suggestedEmbeddingModels?.[0] ?? ''}
                 onChange={(e) => setDraft({ ...draft, embeddingModel: e.target.value })}
               />
             </div>
             <div className="settings-row-hint">
-              Optional; only <span className="mono">ctx.ai.embed</span> uses it.
-              {descriptor !== undefined &&
-                descriptor.suggestedEmbeddingModels === undefined &&
-                descriptor.kind !== 'test' &&
-                ' This provider ships no embeddings endpoint, so setting one here will fail at run time.'}
+              Optional, and separate from the chat model. Only needed by nodes that embed.
             </div>
           </div>
 
@@ -1083,7 +1398,7 @@ export function AiPanel(props: SettingsPanelProps) {
                 onChange={(e) => setDraft({ ...draft, temperature: e.target.value })}
               />
             </div>
-            <div className="settings-row-hint">Blank leaves it to the provider. 0–2.</div>
+            <div className="settings-row-hint">Optional. Blank leaves it to the provider.</div>
           </div>
 
           <div className="settings-row">
@@ -1101,12 +1416,12 @@ export function AiPanel(props: SettingsPanelProps) {
                 onChange={(e) => setDraft({ ...draft, maxOutputTokens: e.target.value })}
               />
             </div>
-            <div className="settings-row-hint">Blank leaves it to the provider.</div>
+            <div className="settings-row-hint">Optional. A whole number, or blank.</div>
           </div>
 
           {draft.headers !== undefined && (
-            <div className="settings-row settings-row--stack">
-              <span className="settings-row-label">Custom headers</span>
+            <div className="settings-row">
+              <span className="settings-row-label">Headers</span>
               <div className="settings-row-control">
                 <span className="settings-tags">
                   {Object.entries(draft.headers).map(([header, value]) => (
@@ -1117,9 +1432,8 @@ export function AiPanel(props: SettingsPanelProps) {
                 </span>
               </div>
               <div className="settings-row-hint">
-                Kept exactly as they are. There is no editor for headers here — they are hand-written
-                in <span className="mono">ai.yaml</span>, and this form carries them through
-                untouched rather than deleting them as a side effect of an edit.
+                Hand-written in ai.yaml and carried through unchanged — there is no editor for them
+                here, and saving from this form does not drop them.
               </div>
             </div>
           )}
@@ -1149,186 +1463,6 @@ export function AiPanel(props: SettingsPanelProps) {
           </div>
         </div>
       )}
-
-      {/* ---- keys -------------------------------------------------------- */}
-      <div className="settings-section">
-        <div className="settings-section-head">
-          <h4 className="settings-subheading">API keys</h4>
-        </div>
-        <p className="settings-section-desc">
-          Values are stored in the OS keychain and are write-only from this window: the app can
-          create, list and delete key NAMES here, and can never read a value back — not even one it
-          has just stored. What is shown below is whether a key exists and when it was first
-          written.
-        </p>
-
-        {!props.platform.secretsAvailable && (
-          <div className="settings-note settings-note--warn">
-            This machine's keychain is not backing the app's encrypted store, so storing a secret
-            would be refused. Any profile needing a key will keep reporting "missing key" until that
-            is fixed; a local provider that needs no key works regardless.
-          </div>
-        )}
-
-        {secretsError !== null && (
-          <div className="settings-note settings-note--error">{secretsError}</div>
-        )}
-
-        {secretKeys === null && secretsError === null && (
-          <div className="settings-loading">
-            <span className="settings-spinner" /> Reading which keys exist…
-          </div>
-        )}
-
-        {secretKeys !== null && referencedKeys.length === 0 && (
-          <div className="settings-empty">
-            <div className="settings-empty-title">No key needed</div>
-            <div className="settings-empty-text">
-              No profile on this machine names an API key. Give a profile a key reference to store a
-              credential for it.
-            </div>
-          </div>
-        )}
-
-        {secretKeys !== null && referencedKeys.length > 0 && (
-          <div className="settings-list">
-            {referencedKeys.map((key) => {
-              const info = keyInfoByName.get(key);
-              const users = (config?.profiles ?? []).filter((p) => p.apiKeyRef === key).map((p) => p.name);
-              return (
-                <div key={key} className={`settings-list-item ${info ? 'is-ok' : 'is-warn'}`}>
-                  <div className="settings-item-head">
-                    <span className="settings-item-name mono">{key}</span>
-                    <span className={info ? 'badge badge--ok' : 'badge badge--warn'}>
-                      {info ? 'stored' : 'not stored'}
-                    </span>
-                    {info !== undefined && (
-                      <span className="settings-item-meta">
-                        first written {new Date(info.createdAt).toLocaleString()}
-                      </span>
-                    )}
-                    <div className="settings-item-actions">
-                      {info !== undefined && (
-                        <button
-                          className="settings-btn settings-btn--small settings-btn--danger"
-                          disabled={keyBusy !== null}
-                          onClick={() => deleteSecret(key)}
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div className="settings-item-body">
-                    <div className="settings-item-desc">
-                      Used by {users.length > 0 ? users.map((n) => `"${n}"`).join(', ') : 'no profile'}.
-                    </div>
-                    <div className="settings-row">
-                      <label className="settings-row-label" htmlFor={`ai-secret-${key}`}>
-                        {info ? 'Replace value' : 'Value'}
-                      </label>
-                      <div className="settings-row-control">
-                        <input
-                          id={`ai-secret-${key}`}
-                          className="settings-input settings-input--mono"
-                          type="password"
-                          value={keyDrafts[key] ?? ''}
-                          spellCheck={false}
-                          autoComplete="off"
-                          disabled={!props.platform.secretsAvailable || keyBusy !== null}
-                          placeholder={info ? 'a value is stored — type a new one to replace it' : 'paste the key'}
-                          onChange={(e) => setKeyDrafts((d) => ({ ...d, [key]: e.target.value }))}
-                        />
-                        <button
-                          className="settings-btn settings-btn--small"
-                          disabled={
-                            !props.platform.secretsAvailable ||
-                            keyBusy !== null ||
-                            (keyDrafts[key] ?? '') === ''
-                          }
-                          onClick={() => storeSecret(key)}
-                        >
-                          {keyBusy === key ? (
-                            <>
-                              <span className="settings-spinner" /> Storing…
-                            </>
-                          ) : (
-                            'Store'
-                          )}
-                        </button>
-                      </div>
-                      <div className="settings-row-hint">
-                        Sent straight to the keychain and cleared from this field. It is not shown
-                        again, here or anywhere else in the app.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {unreferencedKeys.length > 0 && (
-          <div className="settings-note settings-note--info">
-            This machine also holds {unreferencedKeys.length} key
-            {unreferencedKeys.length === 1 ? '' : 's'} that no AI profile names —{' '}
-            {unreferencedKeys.map((info) => info.key).join(', ')}. They may belong to another
-            settings section, so they are listed rather than managed from here.
-          </div>
-        )}
-      </div>
-
-      {/* ---- the catalogue ----------------------------------------------- */}
-      <div className="settings-section">
-        <div className="settings-section-head">
-          <h4 className="settings-subheading">Providers</h4>
-        </div>
-        <p className="settings-section-desc">
-          Every provider a profile can be bound to. No provider is privileged and there is no hosted
-          router in this list: a middleman in the data path is not a default an offline-capable app
-          gets to choose for you.
-        </p>
-        <div className="settings-list">
-          {PROVIDERS.map((provider) => (
-            <div
-              key={provider.id}
-              className={`settings-list-item ${provider.kind === 'test' ? 'is-muted' : ''}`}
-            >
-              <div className="settings-item-head">
-                <span className="settings-item-name">{provider.label}</span>
-                <span className="settings-item-meta">{provider.id}</span>
-                {provider.kind === 'test' ? (
-                  <span className="badge badge--unimplemented">not a real provider</span>
-                ) : (
-                  <span className="settings-tag">{KIND_LABEL[provider.kind]}</span>
-                )}
-                {provider.needsApiKey && <span className="settings-tag">needs an API key</span>}
-                {provider.needsBaseUrl && <span className="settings-tag">needs an endpoint</span>}
-              </div>
-              <div className="settings-item-body">
-                <div className="settings-item-desc">{provider.summary}</div>
-                <div className="settings-item-desc">{kindSentence(provider.kind)}</div>
-                {isExternalUrl(provider.docsUrl) ? (
-                  <button
-                    className="settings-link"
-                    onClick={() => void window.archspace.openExternal(provider.docsUrl)}
-                  >
-                    {provider.docsUrl}
-                  </button>
-                ) : (
-                  <div className="settings-path">
-                    <span className="settings-code" title={provider.docsUrl}>
-                      {provider.docsUrl}
-                    </span>
-                    <span className="settings-item-meta">in this repository — it has no upstream</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
