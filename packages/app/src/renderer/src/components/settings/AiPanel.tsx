@@ -8,13 +8,24 @@
  * the editor for one side of a contract the document depends on, which is why
  * it shows the readiness of every binding next to the binding itself.
  *
- * **Shape: one row per provider, everything else folded away.** The panel used
- * to render five stacked sections — a profile list with every field expanded, a
+ * **Shape: one row per provider, and the row IS the editor.** The panel used to
+ * render five stacked sections — a profile list with every field expanded, a
  * separate key manager, and the whole provider catalogue with its prose — about
- * 1,700px of mostly-static text for a machine with two bindings. The row is now
- * two lines (provider, readiness, and the key field that is the only thing most
- * people open this panel to touch) with the rest behind `Details`. Nothing was
- * deleted from the data model: the grouping is a view, computed in
+ * 1,700px of mostly-static text for a machine with two bindings.
+ *
+ * A binding needs exactly three things the user must supply: a provider, a
+ * model id (`validateAiConfig` makes a blank one an error, and there is no
+ * honest cross-provider default) and, for a cloud provider, a key. So the row
+ * carries all three — provider on the head line, model and key as fields
+ * beneath it — and the eight-field form is reached only through `Details`,
+ * where the things almost nobody sets live: profile name, endpoint,
+ * temperature, token budget, embedding model. Binding a provider is one click
+ * on its name, which writes the catalogue's first model and the generated key
+ * name; `openai-compatible` is the exception and opens the form, because it
+ * ships no suggested models on purpose and requires an endpoint, so a one-click
+ * bind there could only ever produce a refused save.
+ *
+ * Nothing was deleted from the data model: the grouping is a view, computed in
  * `ai-groups.ts` and tested there, and the write path below never sees a group.
  *
  * That last point is load-bearing. `saveAiConfig` is a verbatim whole-file
@@ -326,6 +337,16 @@ export function AiPanel(props: SettingsPanelProps) {
   /** Write-only, per key name, cleared the instant a value is accepted. */
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
   const [keyBusy, setKeyBusy] = useState<string | null>(null);
+  /**
+   * The model id being typed on a row, per profile name.
+   *
+   * Model and key are the whole of what a working binding needs beyond the
+   * provider, so both are edited on the row itself and the eight-field form is
+   * reached only through Details. Kept as a draft rather than written on every
+   * keystroke because `saveAiConfig` is a verbatim whole-file overwrite with no
+   * backup: every write stays behind a button someone pressed.
+   */
+  const [modelDrafts, setModelDrafts] = useState<Record<string, string>>({});
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [draftErrors, setDraftErrors] = useState<string[]>([]);
@@ -476,9 +497,7 @@ export function AiPanel(props: SettingsPanelProps) {
    * Start a profile for one provider, with the fields the editor will show
    * filled in. Only visible fields are pre-filled — a value written into
    * `ai.yaml` that never appeared on screen is a value the user cannot account
-   * for later. `openai-compatible` ships no suggested models on purpose
-   * (providers.ts: only the endpoint knows what it serves), so its model stays
-   * blank and Save stays blocked until one is typed.
+   * for later.
    */
   const addForProvider = (descriptor: ProviderDescriptor): void => {
     openDraft({
@@ -489,6 +508,68 @@ export function AiPanel(props: SettingsPanelProps) {
       apiKeyRef: descriptor.needsApiKey ? `ai.${descriptor.id}.api_key` : '',
     });
     setExpanded((open) => new Set(open).add(descriptor.id));
+  };
+
+  /**
+   * Can this provider be bound in one click, with nothing left to guess?
+   *
+   * Only when the catalogue supplies a model AND the provider has a default
+   * endpoint. `validateAiConfig` makes both an ERROR rather than a warning — a
+   * blank model and a missing `baseUrl` on a `needsBaseUrl` provider each
+   * refuse the write — so a one-click bind for `openai-compatible`, which ships
+   * no suggested models on purpose (only the endpoint knows what it serves),
+   * could only ever produce a refused save. That provider opens the form
+   * instead, which is the honest version of the same gesture.
+   */
+  const canBindDirectly = (descriptor: ProviderDescriptor): boolean =>
+    descriptor.suggestedModels.length > 0 && !descriptor.needsBaseUrl;
+
+  /**
+   * Bind a provider straight from its button: one profile, the catalogue's
+   * first model, and the generated key name. Everything written appears on the
+   * row a moment later, and Remove undoes it — which is what makes writing on
+   * a single click reasonable here rather than presumptuous.
+   */
+  const bindProvider = (descriptor: ProviderDescriptor): void => {
+    if (config === null) return;
+    if (!canBindDirectly(descriptor)) {
+      addForProvider(descriptor);
+      return;
+    }
+    const profile: ModelProfile = {
+      name: suggestProfileName(config.profiles, descriptor.id),
+      provider: descriptor.id,
+      model: descriptor.suggestedModels[0],
+      ...(descriptor.needsApiKey ? { apiKeyRef: `ai.${descriptor.id}.api_key` } : {}),
+    };
+    // A config whose defaultProfile names nothing is refused by the validator,
+    // so the first binding on a machine also becomes the default.
+    const keepsDefault = config.profiles.some((p) => p.name === config.defaultProfile);
+    void persist(
+      {
+        profiles: [...config.profiles, profile],
+        defaultProfile: keepsDefault ? config.defaultProfile : profile.name,
+      },
+      `Added the "${profile.name}" profile.`,
+    );
+  };
+
+  /** The model id showing on a row: what is being typed, else what is saved. */
+  const modelValue = (profile: ModelProfile): string => modelDrafts[profile.name] ?? profile.model;
+
+  const saveModel = (profile: ModelProfile): void => {
+    if (config === null) return;
+    const model = modelValue(profile).trim();
+    if (model === '' || model === profile.model) return;
+    void persist(
+      {
+        profiles: config.profiles.map((p) => (p.name === profile.name ? { ...p, model } : p)),
+        defaultProfile: config.defaultProfile,
+      },
+      `"${profile.name}" now uses ${model}.`,
+    ).then((ok) => {
+      if (ok) setModelDrafts((d) => ({ ...d, [profile.name]: model }));
+    });
   };
 
   const saveDraft = () => {
@@ -737,17 +818,11 @@ export function AiPanel(props: SettingsPanelProps) {
 
       {/* ---- one row per provider ---------------------------------------- */}
       <div className="settings-section">
+        {/* No "Add profile" button: the unbound-provider row below is the same
+            gesture with the choice already made, and a blank form was the more
+            confusing of the two doors into one place. */}
         <div className="settings-section-head">
           <h4 className="settings-subheading">Providers on this machine</h4>
-          <div className="settings-actions">
-            <button
-              className="settings-btn settings-btn--small"
-              disabled={config === null || draft !== null}
-              onClick={() => openDraft(blankDraft())}
-            >
-              Add profile
-            </button>
-          </div>
         </div>
 
         {config === null && configError === null && (
@@ -806,9 +881,12 @@ export function AiPanel(props: SettingsPanelProps) {
                     )}
                     {holdsDefault && <span className="badge badge--info">default</span>}
                     {draftsHere && <span className="badge badge--warn">unsaved</span>}
+                    {/* The model used to live here; it is an editable field on
+                        the row now, so repeating it would be two places to
+                        read one fact — and one of them stale while typing. */}
                     <span className="settings-item-meta">
                       {single !== null
-                        ? `${single.name} · ${single.model}`
+                        ? single.name
                         : `${group.profiles.length} profiles${holdsDefault ? ' · default lives here' : ''}`}
                     </span>
                     <div className="settings-item-actions">
@@ -843,6 +921,40 @@ export function AiPanel(props: SettingsPanelProps) {
                       </button>
                     </div>
                   </div>
+
+                  {/* Model and key: the whole of what a working binding needs
+                      beyond the provider, so both are edited here and the
+                      eight-field form is reached only through Details. Only for
+                      a single-profile provider — with several, "which one" has
+                      no answer on a collapsed row. */}
+                  {single !== null && (
+                    <div className="ai-key-line">
+                      <input
+                        className={`settings-input settings-input--mono${
+                          modelValue(single).trim() === '' ? ' is-invalid' : ''
+                        }`}
+                        value={modelValue(single)}
+                        spellCheck={false}
+                        autoComplete="off"
+                        aria-label={`Model for ${group.descriptor.label}`}
+                        onChange={(e) =>
+                          setModelDrafts((d) => ({ ...d, [single.name]: e.target.value }))
+                        }
+                      />
+                      {modelValue(single).trim() !== single.model && (
+                        // Only when it differs from the file. An always-present
+                        // Save invites a write nobody meant, and this panel
+                        // overwrites ai.yaml wholesale.
+                        <button
+                          className="settings-btn settings-btn--small settings-btn--primary"
+                          disabled={saving || modelValue(single).trim() === ''}
+                          onClick={() => saveModel(single)}
+                        >
+                          Save
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {/* The key line: the one thing most visits to this panel are
                       for, so it sits outside the fold. */}
@@ -1193,7 +1305,7 @@ export function AiPanel(props: SettingsPanelProps) {
                     ? kindSentence('test')
                     : `${provider.summary} ${kindSentence(provider.kind)}`
                 }
-                onClick={() => addForProvider(provider)}
+                onClick={() => bindProvider(provider)}
               >
                 {provider.label}
               </button>

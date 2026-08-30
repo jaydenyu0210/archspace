@@ -170,6 +170,19 @@ await new Promise((r, j) => {
  * React mounts in an effect, so the first paint can beat it. Retry rather than
  * sleep a guessed interval: a fixed wait is either flaky or slow, and on a
  * loaded machine it is both.
+ *
+ * The loop waits for the DOCUMENT, not just the wordmark. The two arrive
+ * separately — React mounts locally, while the bundled example travels main →
+ * renderer over IPC — so a loop that stopped at the wordmark captured
+ * `canvasNodes: 0` whenever the machine was busy enough for the mount to win
+ * that race. Nothing failed at the capture; the stale zero was carried a
+ * hundred lines down to the drop test, which then reported the graph changing
+ * from 0 to 7 nodes and blamed a dropped file for the document simply having
+ * loaded. A snapshot has to be coherent to be compared against later.
+ *
+ * A document that genuinely never opens still exits this loop, on the attempt
+ * ceiling, and is still caught — by the assertion at the end that says so in
+ * those words.
  */
 const EXPR = `JSON.stringify({
   wordmark: document.querySelector('.wordmark')?.innerText ?? null,
@@ -180,7 +193,7 @@ const EXPR = `JSON.stringify({
 })`;
 
 let ui = null;
-for (let attempt = 0; attempt < 25 && ui?.wordmark == null; attempt++) {
+for (let attempt = 0; attempt < 25 && (ui?.wordmark == null || ui.canvasNodes === 0); attempt++) {
   if (attempt > 0) await new Promise((r) => setTimeout(r, 400));
   const id = 100 + attempt;
   ws.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression: EXPR, returnByValue: true } }));
@@ -268,6 +281,63 @@ for (const tab of SETTINGS_TABS) {
   if (seen.chars < 200) fail(`the "${tab}" panel rendered ${seen.chars} characters — effectively blank`);
   panels.push(`${tab}:${seen.chars}`);
 }
+/**
+ * Binding an AI provider from its name, which is a WRITE all the way to disk.
+ *
+ * The AI panel's provider row is the one place the app creates a model profile
+ * on a single click: it builds the profile, runs the validator, hands it to
+ * main, main overwrites ai.yaml, and the panel re-reads the file rather than
+ * trusting what it sent. Nothing below the renderer can exercise that — the
+ * panel is reachable only through a native menu — and the failure mode is
+ * silent, because a refused save leaves the click looking like it did nothing.
+ * The fresh --user-data-dir means this writes a throwaway ai.yaml, never the
+ * user's own.
+ *
+ * `openai-compatible` is deliberately NOT the provider clicked here: it has no
+ * suggested model and requires an endpoint, so it opens the form instead, and
+ * clicking it would test the fallback rather than the one-click path.
+ */
+await openSettingsTab('ai');
+const aiBefore = await evaluate(ws, 980, `JSON.stringify({
+  counter: document.querySelector('.settings-panel .settings-item-meta')?.innerText ?? null,
+  rows: document.querySelectorAll('.settings-panel .settings-list-item').length,
+  unbound: [...document.querySelectorAll('.ai-unbound button')].map(b => b.innerText),
+  modelFields: document.querySelectorAll('.ai-key-line input:not([type=password])').length,
+  keyFields: document.querySelectorAll('.ai-key-line input[type=password]').length,
+})`);
+
+if (!aiBefore?.unbound?.includes('OpenAI')) {
+  fail(`the AI panel offers no OpenAI provider to bind; unbound: ${JSON.stringify(aiBefore?.unbound ?? [])}`);
+}
+// The row IS the editor, so each bound single-profile provider must carry an
+// editable model field and (when it needs one) a key field. Zero of either
+// means the fold swallowed the two settings that matter.
+if ((aiBefore.modelFields ?? 0) === 0) fail('no editable model field on any provider row');
+if ((aiBefore.keyFields ?? 0) === 0) fail('no key field on any provider row');
+
+await evaluate(ws, 981, `[...document.querySelectorAll('.ai-unbound button')].find(b => b.innerText === 'OpenAI')?.click(), '"ok"'`);
+
+let aiAfter = null;
+for (let i = 0; i < 15 && (aiAfter?.rows ?? 0) <= (aiBefore.rows ?? 0); i++) {
+  await new Promise((r) => setTimeout(r, 400));
+  aiAfter = await evaluate(ws, 982 + i, `JSON.stringify({
+    counter: document.querySelector('.settings-panel .settings-item-meta')?.innerText ?? null,
+    rows: document.querySelectorAll('.settings-panel .settings-list-item').length,
+    names: [...document.querySelectorAll('.settings-panel .settings-item-name')].map(e => e.innerText),
+    errors: [...document.querySelectorAll('.settings-note--error')].map(e => e.innerText.slice(0, 200)),
+  })`);
+}
+if (aiAfter?.errors?.length > 0) fail(`binding OpenAI reported an error: ${JSON.stringify(aiAfter.errors)}`);
+if ((aiAfter?.rows ?? 0) !== aiBefore.rows + 1) {
+  fail(`clicking OpenAI drew ${aiAfter?.rows ?? 0} provider rows, expected ${aiBefore.rows + 1} — the write was refused or never happened`);
+}
+if (!aiAfter.names.includes('OpenAI')) fail(`no OpenAI row after binding it; rows: ${JSON.stringify(aiAfter.names)}`);
+// The counter is the anti-collapse tell-tale: it must count profiles AND
+// providers, so a file with N bindings can never read as fewer.
+if (!/3 profiles across 3 providers/.test(aiAfter.counter ?? '')) {
+  fail(`the header counter says "${aiAfter.counter}" after adding a third profile`);
+}
+
 /**
  * The out-of-the-box flow, end to end, because it is the one that matters and
  * the one no other test can reach: consent to the bundled plugin through the
@@ -704,6 +774,7 @@ console.log(
     `       opened "${ui.docName}" with ${ui.canvasNodes} nodes on the canvas\n` +
     `       settings tabs rendered — ${panels.join(', ')} (characters)\n` +
     `       consent granted in-app — palette ${before.types} -> ${consented.types} types, ${consented.reviewTypes} from the plugin\n` +
+    `       AI provider bound in one click — ${aiBefore.rows} rows -> ${aiAfter.rows}, "${aiAfter.counter}", written through to ai.yaml and read back\n` +
     `       ${(run.final ?? '').trim()}\n` +
     `       floor plan drew — ${plan.rooms} rooms, ${plan.walls} walls, ${plan.labels} labels\n` +
     `       storey switcher — ${storeys.buttons} storeys, switching to 4 redrew the plan; panel resized ${beforeDrag} -> ${afterDrag.preview}px\n` +
