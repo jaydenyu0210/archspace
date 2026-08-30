@@ -13,7 +13,7 @@
  * Polygons are closed rings (the last vertex joins the first implicitly) and
  * every areaM2 is the shoelace area of the ring actually emitted.
  */
-import type { NodeModule, Value } from '@archspace/node-sdk';
+import type { NodeContext, NodeModule, Value } from '@archspace/node-sdk';
 import type {
   MassingResult,
   MassingStorey,
@@ -23,8 +23,19 @@ import type {
   TableValue,
 } from './shapes.js';
 import { hex8, mulberry32, requireInput, round2, round3, sleep, toValue } from './util.js';
+import { describeProfile, MODEL_PROFILE_PARAM, requestedProfile } from './ai-common.js';
+import {
+  MASSING_PROPOSAL_SCHEMA,
+  massingPrompt,
+  proposalSummary,
+  ringAreaM2,
+  validateMassingProposal,
+  type MassingProposal,
+} from './massing-ai.js';
 
 export interface GenerateMassingParams {
+  backend: 'mock' | 'ai';
+  profile: string;
   strategy: MassingStrategy;
   seed: number;
   floor_to_floor_m: number;
@@ -214,6 +225,68 @@ function centredTower(podium: Shape): Shape {
   return shapeFromRing(rect(x0, y0, widthM, depthM), widthM, depthM);
 }
 
+/**
+ * A model-supplied ring as the same `Shape` the deterministic strategies
+ * build, so both backends feed one downstream computation.
+ *
+ * `widthM`/`depthM` are the ring's bounding box rather than anything the model
+ * said, for the reason the header gives: the model supplies a polygon and this
+ * package supplies every number describing it. An L-shape's bounding box is
+ * wider than any of its arms, which is the honest reading of "how wide is this
+ * building" and exactly what the deterministic `l_shape` reports too.
+ */
+function shapeFromProposalRing(ring: [number, number][]): Shape {
+  const xs = ring.map(([x]) => x);
+  const ys = ring.map(([, y]) => y);
+  const polygon = ring.map(([x, y]): [number, number] => [round2(x), round2(y)]);
+  return {
+    polygon,
+    widthM: round2(Math.max(...xs) - Math.min(...xs)),
+    depthM: round2(Math.max(...ys) - Math.min(...ys)),
+    areaM2: round2(ringAreaM2(polygon)),
+    perimeterM: round2(ringPerimeterM(polygon)),
+  };
+}
+
+/**
+ * Ask the model for a scheme, and refuse an unusable one.
+ *
+ * The refusal is `ctx.retryable`, which is the whole reason this is safe to
+ * ship: a bad sample is an expected outcome, not a defect, and re-sampling is
+ * precisely its remedy (§7.5 hands the retry to the engine's policy rather
+ * than looping here). The `why` is carried into the message because a run log
+ * saying "the footprint left the envelope at [61.2, 4]" is the difference
+ * between a diagnosable failure and a mysterious one.
+ */
+async function proposeMassing(
+  ctx: NodeContext,
+  params: GenerateMassingParams,
+  brief: ProjectBrief,
+  envW: number,
+  envD: number,
+  storeyCount: number,
+): Promise<MassingProposal> {
+  const profile = requestedProfile(params.profile);
+  ctx.progress(0.25, `asking ${describeProfile(profile)} for a massing scheme`);
+
+  const { object } = await ctx.ai.generateObject({
+    schema: MASSING_PROPOSAL_SCHEMA,
+    system:
+      'You are an architect sizing a concept massing. Answer with geometry only: a footprint polygon in metres from the envelope corner. Never estimate areas or ratios — they are computed from your polygon.',
+    prompt: massingPrompt(brief, envW, envD, storeyCount),
+    signal: ctx.signal,
+    ...(profile !== undefined ? { profile } : {}),
+  });
+
+  const verdict = validateMassingProposal(object, envW, envD, storeyCount);
+  if (!verdict.ok) {
+    throw ctx.retryable(
+      new Error(`aec.generate_massing: the model's scheme was not usable — ${verdict.why}`),
+    );
+  }
+  return verdict.proposal;
+}
+
 export const generateMassingNode: NodeModule<GenerateMassingParams> = {
   manifest: {
     type: 'aec.generate_massing',
@@ -228,11 +301,21 @@ export const generateMassingNode: NodeModule<GenerateMassingParams> = {
     params: {
       type: 'object',
       properties: {
+        backend: {
+          type: 'string',
+          title: 'Backend',
+          enum: ['mock', 'ai'],
+          default: 'mock',
+          description:
+            'mock: the deterministic scheme built from the envelope and the target. ai: the model bound to the profile below chooses the footprint, and every number is still computed from the polygon it returns.',
+        },
+        profile: MODEL_PROFILE_PARAM,
         strategy: {
           type: 'string',
           title: 'Strategy',
           enum: ['bar', 'courtyard', 'l_shape', 'tower_podium'],
           default: 'bar',
+          description: 'The parti to build. Ignored on the ai backend, which picks its own.',
         },
         seed: { type: 'integer', title: 'Seed', default: 7, minimum: 0 },
         floor_to_floor_m: {
@@ -294,16 +377,40 @@ export const generateMassingNode: NodeModule<GenerateMassingParams> = {
     const shrink = (): number => 0.98 + rng() * 0.02; // −2 %..0 %, never past the envelope
 
     const targetFootprintM2 = clamp(brief.targetGrossAreaM2 / storeyCount, 0, envelopeAreaM2);
-    const base = buildShape(params.strategy, envW, envD, targetFootprintM2, jitter, shrink);
-    const tower = params.strategy === 'tower_podium' ? centredTower(base) : null;
 
-    ctx.progress(0.5, `stacking ${storeyCount} storeys as a ${params.strategy} scheme`);
+    // The two backends differ ONLY in where `base`, `upper` and `strategy`
+    // come from. Everything after this point — areas, elevations, FAR,
+    // coverage, facade, surface-to-volume — is the same arithmetic over
+    // whichever polygons arrived, which is what makes a sampled scheme's
+    // numbers as trustworthy as a derived one's: they describe the shape that
+    // is actually there, because nothing else was ever asked for.
+    let base: Shape;
+    let upper: Shape | null;
+    let strategy: MassingStrategy;
+    let setbackAbove: number;
+
+    if (params.backend === 'ai') {
+      const proposal = await proposeMassing(ctx, params, brief, envW, envD, storeyCount);
+      strategy = proposal.strategy;
+      base = shapeFromProposalRing(proposal.footprint);
+      upper = proposal.upperFootprint === undefined ? null : shapeFromProposalRing(proposal.upperFootprint);
+      setbackAbove = proposal.setbackAboveLevel ?? storeyCount;
+      if (proposal.rationale !== '') ctx.log('info', proposal.rationale);
+      ctx.log('info', 'massing scheme chosen by a model', proposalSummary(proposal));
+    } else {
+      strategy = params.strategy;
+      base = buildShape(strategy, envW, envD, targetFootprintM2, jitter, shrink);
+      // tower_podium: levels 0–1 are the podium, levels 2+ the tower plate.
+      upper = strategy === 'tower_podium' ? centredTower(base) : null;
+      setbackAbove = 2;
+    }
+
+    ctx.progress(0.5, `stacking ${storeyCount} storeys as a ${strategy} scheme`);
     await sleep(params.mock_latency_ms / 3, ctx.signal);
 
     const storeys: MassingStorey[] = [];
     for (let level = 0; level < storeyCount; level++) {
-      // tower_podium: levels 0–1 are the podium, levels 2+ the tower plate.
-      const shape = tower !== null && level >= 2 ? tower : base;
+      const shape = upper !== null && level >= setbackAbove ? upper : base;
       storeys.push({
         level,
         elevationM: round2(level * params.floor_to_floor_m),
@@ -341,9 +448,13 @@ export const generateMassingNode: NodeModule<GenerateMassingParams> = {
 
     const result: MassingResult = {
       massingId,
-      generator: { name: 'mock-massing', version: '1.0.0', seed: params.seed },
+      generator: {
+        name: params.backend === 'ai' ? 'ai-massing' : 'mock-massing',
+        version: '1.0.0',
+        seed: params.seed,
+      },
       units: 'm',
-      strategy: params.strategy,
+      strategy,
       footprint: {
         widthM: base.widthM,
         depthM: base.depthM,

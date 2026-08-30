@@ -277,12 +277,19 @@ export interface MassingStorey {
 }
 
 /**
- * Output of aec.generate_massing. MOCK CONTRACT: a real massing/generative
- * design backend must return this shape.
+ * Output of aec.generate_massing.
+ *
+ * `mock-massing` is the deterministic backend; `ai-massing` is a model that
+ * chose the footprint. Both produce this identical shape, and every number in
+ * it is computed from the emitted geometry either way — the model supplies a
+ * polygon and nothing else, so a metric can never disagree with the volume it
+ * describes. Which one ran is recorded here because a downstream reader, and a
+ * person reading a report, are entitled to know whether a scheme was derived
+ * or sampled.
  */
 export interface MassingResult {
   massingId: string; // "mass_" + 8 hex derived from the seed
-  generator: { name: 'mock-massing'; version: string; seed: number };
+  generator: { name: 'mock-massing' | 'ai-massing'; version: string; seed: number };
   units: 'm';
   strategy: MassingStrategy;
   footprint: { widthM: number; depthM: number; areaM2: number; polygon: [number, number][] };
