@@ -14,6 +14,14 @@
  * name, which writes the catalogue's first model and the conventional key
  * name; the model sits in an editable field on the row; the key goes beside it.
  *
+ * The keychain NAME is not shown anywhere. It is derived from the provider and
+ * is not a thing anyone picks, so printing it only ever asked people to read an
+ * identifier they could not act on. A profile left pointing at another
+ * provider's key — what a hand-edited file, or an older build's provider
+ * switch, produces — is therefore repaired when a key is stored for it rather
+ * than surfaced as a puzzle. `Details` likewise appears only where it has
+ * something the row cannot hold: a provider carrying more than one profile.
+ *
  * What that deletion costs, stated plainly because it is a real cost: profile
  * NAME, EMBEDDING MODEL, TEMPERATURE and MAX OUTPUT TOKENS are no longer
  * settable from the UI. They remain in the file format, are still read, and
@@ -48,8 +56,9 @@
  *  3. **Secrets are write-only from here.** The bridge deliberately has no
  *     `getSecret` (preload/index.ts header, §12): the renderer may create,
  *     list and delete key NAMES and can never read a value back. So the key
- *     field is a write-only input cleared the moment it is stored, and what
- *     the UI reports is existence and creation time — never a value.
+ *     field is a write-only input cleared the moment it is stored, and all the
+ *     UI reports is whether a value exists — never the value, not even the one
+ *     it just sent.
  *  4. **A key belongs to a profile, not to a provider.** When one provider's
  *     profiles name different `apiKeyRef`s the row shows a count and refuses
  *     to draw a single key field, because one field there would state the
@@ -135,14 +144,16 @@ const READINESS_LABEL: Record<ProfileStatus['readiness'], string> = {
  * `ready`: the badge already says that, and a sentence repeating a badge is
  * exactly the crowding this panel was cut to remove.
  */
-function explainReadiness(status: ProfileStatus, profile: ModelProfile): string {
+function explainReadiness(status: ProfileStatus): string {
   switch (status.readiness) {
     case 'ready':
       return '';
     case 'missing-key':
-      return profile.apiKeyRef === undefined
-        ? 'This provider needs an API key and the profile names none.'
-        : `Nothing is stored under "${profile.apiKeyRef}" on this machine — paste the key above.`;
+      // Deliberately does not name the keychain entry. That name is derived
+      // from the provider and is shown nowhere else any more, so quoting it
+      // here would be the one place a user meets an identifier they cannot act
+      // on — which is exactly the confusion this panel was trimmed to remove.
+      return 'No key stored for this provider yet — paste it above.';
     case 'unreachable':
       return 'A real call did not get through. The binding is complete; the endpoint, the network or the credential is not.';
     case 'unknown':
@@ -166,11 +177,6 @@ function kindSentence(kind: ProviderDescriptor['kind']): string {
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/** `docsUrl` is an upstream URL for real providers and a repo path for `mock`. */
-function isExternalUrl(url: string): boolean {
-  return /^https?:\/\//.test(url);
 }
 
 /** The keychain name this panel generates for a provider. */
@@ -462,7 +468,19 @@ export function AiPanel(props: SettingsPanelProps) {
       .finally(() => setProbing(null));
   };
 
-  const storeSecret = (key: string) => {
+  /**
+   * Store a key, and repoint the profile at it if it was looking elsewhere.
+   *
+   * The keychain NAME is no longer anything a user picks — it is derived from
+   * the provider — so it is not shown, and a profile naming some other
+   * provider's key (what a hand-edited file, or an older build's provider
+   * switch, leaves behind) is a broken pointer rather than a preference.
+   * Pasting a key for a provider is the moment someone says which key that
+   * provider should use, so the repair happens then and is reported in the
+   * notification rather than done in silence. Key first, config second: a
+   * failed keychain write must leave `ai.yaml` untouched.
+   */
+  const storeSecret = (key: string, repoint?: { profile: string; label: string }) => {
     const value = keyDrafts[key] ?? '';
     if (value === '') return;
     setKeyBusy(key);
@@ -479,7 +497,11 @@ export function AiPanel(props: SettingsPanelProps) {
         setKeyDrafts((d) => ({ ...d, [key]: '' }));
         loadSecretKeys();
         requestEngineStatus();
-        notify('info', `Stored a value for "${key}".`);
+        if (repoint === undefined) {
+          notify('info', 'Key stored.');
+          return;
+        }
+        updateProfile(repoint.profile, { apiKeyRef: key }, `Key stored for ${repoint.label}.`);
       })
       .catch((err: unknown) => setSecretsError(errText(err)))
       .finally(() => setKeyBusy(null));
@@ -506,8 +528,11 @@ export function AiPanel(props: SettingsPanelProps) {
   const blockingIssues = issues.filter((i) => i.severity === 'error');
   const warningIssues = issues.filter((i) => i.severity === 'warning');
 
-  /** The write-only key control, wherever a key name is being shown. */
-  const keyField = (ref: string) => {
+  /**
+   * The write-only key control. `repoint` is passed when storing should also
+   * fix a profile pointing at another provider's key name.
+   */
+  const keyField = (ref: string, repoint?: { profile: string; label: string }) => {
     const info = keyInfoByName.get(ref);
     return (
       <>
@@ -527,7 +552,7 @@ export function AiPanel(props: SettingsPanelProps) {
           disabled={
             !props.platform.secretsAvailable || keyBusy !== null || (keyDrafts[ref] ?? '') === ''
           }
-          onClick={() => storeSecret(ref)}
+          onClick={() => storeSecret(ref, repoint)}
         >
           {keyBusy === ref ? (
             <>
@@ -683,14 +708,19 @@ export function AiPanel(props: SettingsPanelProps) {
                 single !== null &&
                 ((modelValue.trim() !== single.model && modelValue.trim() !== '') ||
                   (edit.baseUrl !== undefined && edit.baseUrl.trim() !== (single.baseUrl ?? '')));
-              // A key name generated for a DIFFERENT provider — what a
-              // hand-edited file, or an older build's provider switch, leaves
-              // behind. Harmless until that other provider is bound too, at
-              // which point both resolve to one keychain entry.
-              const foreignKeyRef =
-                single?.apiKeyRef !== undefined &&
-                group.descriptor.needsApiKey &&
-                single.apiKeyRef !== conventionalKeyRef(group.id);
+              // The key name a single-profile provider should be using. Storing
+              // repoints the profile if it names something else, so the field
+              // and its badge speak for the key that will actually be read.
+              const targetRef = group.descriptor.needsApiKey ? conventionalKeyRef(group.id) : null;
+              const singleStatus = single === null ? undefined : statusByName.get(single.name);
+              const singleProbe = single === null ? undefined : probes[single.name];
+              const singleExplanation =
+                engineReady && single !== null && singleStatus !== undefined
+                  ? explainReadiness(singleStatus)
+                  : '';
+              // Details earns its place only when it has something the row
+              // cannot hold: several profiles on one provider.
+              const hasDetails = group.profiles.length > 1;
 
               return (
                 <div key={group.id} className={`settings-list-item ${stripe}`}>
@@ -740,13 +770,51 @@ export function AiPanel(props: SettingsPanelProps) {
                           )}
                         </button>
                       )}
-                      <button
-                        className="settings-btn settings-btn--small"
-                        aria-expanded={isOpen}
-                        onClick={() => toggleExpanded(group.id)}
-                      >
-                        {isOpen ? 'Less' : 'Details'}
-                      </button>
+                      {single !== null && !holdsDefault && (
+                        <button
+                          className="settings-btn settings-btn--small"
+                          disabled={saving}
+                          title="Answer every workflow that does not name a profile"
+                          onClick={() => makeDefault(single.name)}
+                        >
+                          Make default
+                        </button>
+                      )}
+                      {single !== null &&
+                        (confirmRemove === single.name ? (
+                          <>
+                            <button
+                              className="settings-btn settings-btn--small settings-btn--danger"
+                              disabled={saving}
+                              onClick={() => removeProfile(single.name)}
+                            >
+                              Really remove
+                            </button>
+                            <button
+                              className="settings-btn settings-btn--small"
+                              onClick={() => setConfirmRemove(null)}
+                            >
+                              Keep
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            className="settings-btn settings-btn--small settings-btn--danger"
+                            disabled={saving}
+                            onClick={() => setConfirmRemove(single.name)}
+                          >
+                            Remove
+                          </button>
+                        ))}
+                      {hasDetails && (
+                        <button
+                          className="settings-btn settings-btn--small"
+                          aria-expanded={isOpen}
+                          onClick={() => toggleExpanded(group.id)}
+                        >
+                          {isOpen ? 'Less' : 'Details'}
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -811,40 +879,23 @@ export function AiPanel(props: SettingsPanelProps) {
                     </div>
                   )}
 
-                  {/* The key. */}
+                  {/* The key — just the field. The keychain NAME is derived
+                      from the provider and is not a thing anyone chooses, so
+                      showing it was asking people to read an identifier they
+                      cannot act on. */}
                   <div className="ai-key-line">
-                    {group.keyRefs.length === 1 ? (
-                      <>
-                        <span className="settings-code" title={group.keyRefs[0]}>
-                          {group.keyRefs[0]}
-                        </span>
-                        {keyField(group.keyRefs[0])}
-                      </>
-                    ) : group.keyRefs.length > 1 ? (
-                      // Refused on purpose: apiKeyRef is per profile. One field
-                      // here would say keys are per provider, which is false.
+                    {single !== null && targetRef !== null ? (
+                      keyField(targetRef, { profile: single.name, label: group.descriptor.label })
+                    ) : group.descriptor.needsApiKey && single === null ? (
+                      // Several profiles on one provider: `apiKeyRef` is per
+                      // profile, so one field here would say keys are per
+                      // provider, which is false. Counted, and edited inside.
                       <span className="settings-item-meta">
-                        {group.keyRefs.length} key names ·{' '}
-                        {group.keyRefs.filter((ref) => keyInfoByName.has(ref)).length} stored — open
-                        Details
+                        {group.profiles.length} profiles ·{' '}
+                        {group.keyRefs.filter((ref) => keyInfoByName.has(ref)).length} of{' '}
+                        {group.keyRefs.length} key{group.keyRefs.length === 1 ? '' : 's'} stored —
+                        open Details
                       </span>
-                    ) : group.descriptor.needsApiKey && single !== null ? (
-                      <>
-                        <span className="settings-item-meta">This provider needs a key.</span>
-                        <button
-                          className="settings-btn settings-btn--small"
-                          disabled={saving}
-                          onClick={() =>
-                            updateProfile(
-                              single.name,
-                              { apiKeyRef: conventionalKeyRef(group.id) },
-                              `${group.descriptor.label} will use ${conventionalKeyRef(group.id)}.`,
-                            )
-                          }
-                        >
-                          Add a key
-                        </button>
-                      </>
                     ) : (
                       <span className="settings-item-meta">
                         No key needed ·{' '}
@@ -853,24 +904,28 @@ export function AiPanel(props: SettingsPanelProps) {
                     )}
                   </div>
 
-                  {foreignKeyRef && single !== null && (
+                  {/* Why it is not working, when it is not. Never for `ready`:
+                      the badge already says that. */}
+                  {singleExplanation !== '' && (
+                    <div className="settings-item-desc">{singleExplanation}</div>
+                  )}
+
+                  {/* What Test actually got back — the one claim in this panel
+                      that a provider answered, and it prints the evidence. */}
+                  {singleProbe !== undefined && (
                     <div className="ai-key-line">
-                      <span className="settings-item-meta">
-                        That key name belongs to another provider.
+                      <span className={singleProbe.ok ? 'badge badge--ok' : 'badge badge--error'}>
+                        {singleProbe.ok ? 'answered' : 'failed'}
                       </span>
-                      <button
-                        className="settings-btn settings-btn--small"
-                        disabled={saving}
-                        onClick={() =>
-                          updateProfile(
-                            single.name,
-                            { apiKeyRef: conventionalKeyRef(group.id) },
-                            `Now using ${conventionalKeyRef(group.id)}.`,
-                          )
-                        }
-                      >
-                        Use {conventionalKeyRef(group.id)}
-                      </button>
+                      {singleProbe.latencyMs !== undefined && (
+                        <span className="settings-item-meta">{singleProbe.latencyMs} ms</span>
+                      )}
+                      {singleProbe.sample !== undefined && (
+                        <span className="settings-item-meta mono">{singleProbe.sample}</span>
+                      )}
+                      {singleProbe.error !== undefined && (
+                        <span className="settings-item-desc">{singleProbe.error}</span>
+                      )}
                     </div>
                   )}
 
@@ -886,25 +941,15 @@ export function AiPanel(props: SettingsPanelProps) {
                     </div>
                   )}
 
-                  {isOpen && (
+                  {isOpen && hasDetails && (
                     <div className="settings-item-body">
-                      <div className="settings-item-desc">{kindSentence(group.descriptor.kind)}</div>
-                      {isExternalUrl(group.descriptor.docsUrl) && (
-                        <button
-                          className="settings-link"
-                          onClick={() => void window.archspace.openExternal(group.descriptor.docsUrl)}
-                        >
-                          {group.descriptor.docsUrl}
-                        </button>
-                      )}
-
                       <div className="ai-bindings">
                         {group.profiles.map((profile) => {
                           const status = statusByName.get(profile.name);
                           const probe = probes[profile.name];
                           const isDefault = profile.name === config.defaultProfile;
                           const explanation =
-                            engineReady && status !== undefined ? explainReadiness(status, profile) : '';
+                            engineReady && status !== undefined ? explainReadiness(status) : '';
                           return (
                             <div key={profile.name} className="ai-binding">
                               <div className="settings-item-head">
@@ -969,9 +1014,8 @@ export function AiPanel(props: SettingsPanelProps) {
                                 </div>
                               </div>
 
-                              {group.keyRefs.length > 1 && profile.apiKeyRef !== undefined && (
+                              {profile.apiKeyRef !== undefined && (
                                 <div className="ai-key-line">
-                                  <span className="settings-code">{profile.apiKeyRef}</span>
                                   {keyField(profile.apiKeyRef)}
                                   {keyInfoByName.has(profile.apiKeyRef) && (
                                     <button
