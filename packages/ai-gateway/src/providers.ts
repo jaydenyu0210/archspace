@@ -90,7 +90,15 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
     // entry — the native path is here because the shim does not carry a JSON
     // Schema through `generateObject`.
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    suggestedModels: ['gemini-2.5-pro', 'gemini-2.5-flash'],
+    // `gemini-2.5-flash` shipped here and was already retired: Google answered
+    // a probe with "This model models/gemini-2.5-flash is no longer available
+    // to new users. Please update your code to use models/gemini-3.6-flash".
+    // That is the whole argument for these being buttons over a free-text
+    // field rather than a menu — a retired id costs one edit, not a dead end —
+    // and for the first entry mattering most, since a one-click bind writes it.
+    // Only what the provider itself named is listed; guessing a sibling would
+    // reproduce exactly the failure this replaces.
+    suggestedModels: ['gemini-3.6-flash'],
     suggestedEmbeddingModels: ['text-embedding-004', 'gemini-embedding-001'],
     docsUrl: 'https://ai.google.dev/gemini-api/docs',
     summary: 'Gemini models over the hosted Google AI API. Needs an API key stored in the keychain.',
