@@ -13,8 +13,10 @@
  *    provider code — URL construction, auth headers, request shaping, error
  *    mapping, embeddings — and then read back exactly what would have gone on
  *    the wire. The response builders below are the smallest bodies the
- *    `@ai-sdk/anthropic` and `@ai-sdk/openai-compatible` parsers accept, kept
- *    here so a suite reads as intent rather than as provider wire format.
+ *    `@ai-sdk/anthropic`, `@ai-sdk/openai`, `@ai-sdk/google` and
+ *    `@ai-sdk/openai-compatible` parsers accept, kept here so a suite reads as
+ *    intent rather than as provider wire format. Each was derived by driving
+ *    the real parser until it stopped rejecting, not from the vendors' docs.
  *
  * `keychain` is the third seam: `SecretResolver` is the only way a credential
  * enters this package (ARCHITECTURE §6.1, §11), and it records its reads so a
@@ -150,6 +152,58 @@ export function embeddingList(vectors: number[][]): Response {
 /** An OpenAI-shaped failure body. */
 export function openAiFailure(status: number, message: string): Response {
   return json(status, { error: { message, type: 'invalid_request_error', code: null } });
+}
+
+/**
+ * The shape `@ai-sdk/openai` parses out of `POST /v1/responses`.
+ *
+ * The Responses API, not `/chat/completions`: that is what the provider
+ * package targets by default, and it is why the first-class `openai` entry
+ * cannot reuse `chatCompletion` above — the two speak different dialects at
+ * the same vendor.
+ */
+export function openAiResponse(text: string): Response {
+  return json(200, {
+    id: 'resp_fixture',
+    object: 'response',
+    created_at: 0,
+    status: 'completed',
+    model: 'fixture',
+    output: [
+      {
+        type: 'message',
+        id: 'msg_fixture',
+        status: 'completed',
+        role: 'assistant',
+        content: [{ type: 'output_text', text, annotations: [] }],
+      },
+    ],
+    usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+  });
+}
+
+/** The shape `@ai-sdk/google` parses out of `POST /models/<id>:generateContent`. */
+export function googleContent(text: string): Response {
+  return json(200, {
+    candidates: [{ content: { parts: [{ text }], role: 'model' }, finishReason: 'STOP', index: 0 }],
+    usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 },
+  });
+}
+
+/**
+ * Google's embeddings, which are two endpoints wearing one name.
+ *
+ * `@ai-sdk/google` posts a single value to `:embedContent` and reads back
+ * `{embedding:{values}}`, but two or more to `:batchEmbedContents` and reads
+ * `{embeddings:[{values}]}`. A fixture that served only one of them passes the
+ * one-value test and fails the batch, so this answers on the URL — the same
+ * split the real API has.
+ */
+export function googleEmbedding(vectors: number[][]): (call: RecordedCall) => Response {
+  return (call) =>
+    call.url.endsWith(':embedContent')
+      ? json(200, { embedding: { values: vectors[0] ?? [] } })
+      : json(200, { embeddings: vectors.map((values) => ({ values })) });
 }
 
 // ---------------------------------------------------------------------------

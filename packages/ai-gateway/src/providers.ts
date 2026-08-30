@@ -14,11 +14,26 @@
  * Keeping them separate entries is a UX affordance (a local Ollama needs zero
  * configuration), not a second integration to maintain.
  *
+ * `openai` and `google`, by contrast, are NOT that. Both were reachable through
+ * `openai-compatible` before they had entries here, and that route quietly cost
+ * the thing they are most wanted for: `createOpenAICompatible` defaults
+ * `supportsStructuredOutputs` to false, so `generateObject`'s JSON Schema was
+ * downgraded to a bare `response_format: {type:'json_object'}` — free-form JSON,
+ * schema discarded, with a warning nothing surfaced. A user's own OpenAI or
+ * Gemini key would then produce objects that satisfied no schema at all. They
+ * are first-class entries on their own SDK packages for the same reason
+ * `anthropic` is: only the real provider integration knows its own structured
+ * output, its own auth header, and its own embeddings endpoint.
+ *
+ * `suggestedModels` is a set of buttons that fill a free-text field, not a menu
+ * that constrains it. Model line-ups move faster than releases do, so a stale
+ * suggestion costs a click and never blocks a model the list has not heard of.
+ *
  * `docsUrl` is an upstream documentation URL for every real provider; the
  * `mock` provider has no upstream, so it points at this repository's own ADR.
  */
 
-export type ProviderId = 'anthropic' | 'ollama' | 'openai-compatible' | 'mock';
+export type ProviderId = 'anthropic' | 'openai' | 'google' | 'ollama' | 'openai-compatible' | 'mock';
 export type ProviderKind = 'cloud' | 'local' | 'test';
 
 export interface ProviderDescriptor {
@@ -51,6 +66,34 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
     // failure surface mid-run.
     docsUrl: 'https://docs.anthropic.com/en/api/overview',
     summary: 'Claude models over the hosted Anthropic API. Needs an API key stored in the keychain.',
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    kind: 'cloud',
+    needsApiKey: true,
+    needsBaseUrl: false,
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    suggestedModels: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'],
+    suggestedEmbeddingModels: ['text-embedding-3-small', 'text-embedding-3-large'],
+    docsUrl: 'https://platform.openai.com/docs/api-reference/chat',
+    summary: 'GPT models over the hosted OpenAI API. Needs an API key stored in the keychain.',
+  },
+  {
+    id: 'google',
+    label: 'Google Gemini',
+    kind: 'cloud',
+    needsApiKey: true,
+    needsBaseUrl: false,
+    // The SDK's own prefix. Google also ships an OpenAI-compatible shim at
+    // `/v1beta/openai`, which is what this provider existed as before it had an
+    // entry — the native path is here because the shim does not carry a JSON
+    // Schema through `generateObject`.
+    defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    suggestedModels: ['gemini-2.5-pro', 'gemini-2.5-flash'],
+    suggestedEmbeddingModels: ['text-embedding-004', 'gemini-embedding-001'],
+    docsUrl: 'https://ai.google.dev/gemini-api/docs',
+    summary: 'Gemini models over the hosted Google AI API. Needs an API key stored in the keychain.',
   },
   {
     id: 'ollama',
@@ -114,6 +157,8 @@ export function providerHasEmbeddings(provider: ProviderId): boolean {
   switch (provider) {
     case 'anthropic':
       return false;
+    case 'openai':
+    case 'google':
     case 'ollama':
     case 'openai-compatible':
     case 'mock':

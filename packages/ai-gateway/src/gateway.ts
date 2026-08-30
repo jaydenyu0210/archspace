@@ -42,6 +42,8 @@
  * cannot fight over it.
  */
 import { createAnthropic, type AnthropicProvider } from '@ai-sdk/anthropic';
+import { createOpenAI, type OpenAIProvider } from '@ai-sdk/openai';
+import { createGoogleGenerativeAI, type GoogleGenerativeAIProvider } from '@ai-sdk/google';
 import { createOpenAICompatible, type OpenAICompatibleProvider } from '@ai-sdk/openai-compatible';
 import {
   APICallError,
@@ -99,8 +101,24 @@ interface TextPrompt extends MockPrompt {
  */
 type ProviderClient =
   | { kind: 'anthropic'; provider: AnthropicProvider }
+  | { kind: 'openai'; provider: OpenAIProvider }
+  | { kind: 'google'; provider: GoogleGenerativeAIProvider }
   | { kind: 'openai-compatible'; provider: OpenAICompatibleProvider }
   | { kind: 'mock' };
+
+/**
+ * Clients that can serve `embed`.
+ *
+ * A union member rather than a `kind !== 'mock'` check: `@ai-sdk/anthropic`
+ * types `textEmbeddingModel` as returning `never`, so this is the compiler
+ * holding the same line `providerHasEmbeddings` holds at runtime, and a new
+ * provider cannot be added to one without answering the other.
+ */
+type EmbeddingClient = Extract<ProviderClient, { kind: 'openai' | 'google' | 'openai-compatible' }>;
+
+function canEmbed(client: ProviderClient): client is EmbeddingClient {
+  return client.kind === 'openai' || client.kind === 'google' || client.kind === 'openai-compatible';
+}
 
 /**
  * The statically-knowable state of a profile, plus the secret it resolved to.
@@ -228,6 +246,37 @@ export function createAiGateway(options: AiGatewayOptions): ArchspaceAiGateway {
           }),
         };
 
+      // Own SDK packages rather than a third arm of the openai-compatible
+      // branch below, and the reason is `generateObject`: the compatible shim
+      // defaults `supportsStructuredOutputs` to false and silently drops the
+      // JSON Schema, while these two packages carry a schema through in each
+      // provider's own dialect. The explicit `apiKey` is the same rule the
+      // Anthropic branch states — `@ai-sdk/openai` falls back to
+      // `OPENAI_API_KEY` and `@ai-sdk/google` to `GOOGLE_GENERATIVE_AI_API_KEY`
+      // when it is absent, and an ambient credential is exactly what §11's
+      // keychain seam exists to rule out.
+      case 'openai':
+        return {
+          kind: 'openai',
+          provider: createOpenAI({
+            ...(apiKey !== undefined ? { apiKey } : {}),
+            ...(profile.baseUrl !== undefined ? { baseURL: profile.baseUrl } : {}),
+            ...(profile.headers !== undefined ? { headers: profile.headers } : {}),
+            ...(fetchImpl !== undefined ? { fetch: fetchImpl } : {}),
+          }),
+        };
+
+      case 'google':
+        return {
+          kind: 'google',
+          provider: createGoogleGenerativeAI({
+            ...(apiKey !== undefined ? { apiKey } : {}),
+            ...(profile.baseUrl !== undefined ? { baseURL: profile.baseUrl } : {}),
+            ...(profile.headers !== undefined ? { headers: profile.headers } : {}),
+            ...(fetchImpl !== undefined ? { fetch: fetchImpl } : {}),
+          }),
+        };
+
       // providers.ts is explicit that these are one integration: Ollama is an
       // OpenAI-compatible endpoint whose default URL we happen to know. Two
       // catalogue entries, one code path.
@@ -292,6 +341,37 @@ export function createAiGateway(options: AiGatewayOptions): ArchspaceAiGateway {
       throw new Error('ctx.ai needs either a prompt or a non-empty messages list');
     }
     return { prompt: prompt.prompt, ...instructions };
+  }
+
+  /**
+   * Per-provider options for a structured-output call.
+   *
+   * OpenAI's structured outputs have a *strict* mode, and `@ai-sdk/openai`
+   * turns it on by default. Strict mode demands a schema this repo does not
+   * write: every object needs `additionalProperties: false` and every property
+   * must appear in `required`. Node manifests are hand-written loose JSON
+   * Schema by design — schema.ts is explicit that a manifest schema is "typed
+   * loosely enough for a manifest to be hand-written", and passes the SDK no
+   * `validate` callback for the same reason — and the shipped default schema on
+   * `ai.generate_object` satisfies neither rule. Left on, the first call a user
+   * makes with their own OpenAI key would be an HTTP 400 about
+   * `additionalProperties`, which reads as "this app is broken" rather than as
+   * "your schema is not strict-conformant".
+   *
+   * So strict is off and the schema still travels: `text.format` carries the
+   * whole document either way, which is the entire point of the provider being
+   * first-class. The alternative — rewriting the caller's schema into strict
+   * form — was rejected because adding `required` to every property silently
+   * turns an optional field into a mandatory one, which is a different request
+   * than the node author wrote.
+   *
+   * Provider-specific knowledge belongs here and only here: ADR-0010 rule 1
+   * says a node never learns which provider answered.
+   */
+  function objectOptions(profile: ModelProfile): { providerOptions?: Record<string, Record<string, boolean>> } {
+    return profile.provider === 'openai'
+      ? { providerOptions: { openai: { strictJsonSchema: false } } }
+      : {};
   }
 
   function callSettings(profile: ModelProfile, maxOutputTokens: number | undefined): {
@@ -429,6 +509,7 @@ export function createAiGateway(options: AiGatewayOptions): ArchspaceAiGateway {
           schema: toSdkSchema(req.schema),
           ...args,
           ...callSettings(profile, undefined),
+          ...objectOptions(profile),
           ...(req.signal !== undefined ? { abortSignal: req.signal } : {}),
         });
         return { object: asJsonValue(result.object) };
@@ -464,7 +545,7 @@ export function createAiGateway(options: AiGatewayOptions): ArchspaceAiGateway {
           'invalid',
         );
       }
-      if (client.kind !== 'openai-compatible') {
+      if (!canEmbed(client)) {
         throw new Error(`provider "${profile.provider}" claims embeddings but has no embedding client`);
       }
       try {

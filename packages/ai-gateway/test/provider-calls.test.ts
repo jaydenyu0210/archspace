@@ -27,8 +27,11 @@ import {
   chatCompletion,
   configOf,
   embeddingList,
+  googleContent,
+  googleEmbedding,
   keychain,
   openAiFailure,
+  openAiResponse,
   recordFetch,
 } from './helpers.js';
 
@@ -218,11 +221,185 @@ describe('generateObject', () => {
 
     const result = await gateway.generateObject({ prompt: 'x', schema: OBJECT_SCHEMA });
 
+    // A bare `json_object`, with the schema NOWHERE in the request: an
+    // arbitrary compatible endpoint is not assumed to implement OpenAI's
+    // structured outputs, so `@ai-sdk/openai-compatible` degrades to JSON mode
+    // and warns. That is the correct conservative default here and the exact
+    // reason `openai` and `google` are first-class entries on their own
+    // packages rather than base-URL variants of this one — see the schema
+    // cases below, which pin what those two send instead.
     expect(net.single().body.response_format).toEqual({ type: 'json_object' });
+    expect(net.single().rawBody).not.toContain('seats');
     expect(result.object).toEqual({ room: 'R1', seats: 4, tags: ['a', null], nested: { deep: true } });
     // §5.2 says a wire value is JSON plus AssetRef; `asJsonValue` narrows
     // structurally rather than asserting with a cast, so this must survive IPC.
     expect(structuredClone(result.object)).toEqual(result.object);
+  });
+
+  /**
+   * The schema has to actually reach the provider.
+   *
+   * This is the regression suite for a real defect: OpenAI and Gemini were
+   * reachable only as `openai-compatible` base URLs, and on that path the
+   * caller's JSON Schema was dropped in favour of `{"type":"json_object"}`
+   * (pinned above) — so `ai.generate_object` against a user's own OpenAI or
+   * Gemini key returned free-form JSON that satisfied no schema, and the node
+   * checked only that it was an object. Each case below asserts the schema in
+   * the provider's own dialect, because "we passed it to the SDK" is not the
+   * claim worth testing; "it is in the bytes" is.
+   */
+  it('sends the schema to OpenAI in its Responses dialect, with strict off', async () => {
+    const net = alwaysRespond(() => openAiResponse('{"room":"R1","seats":4}'));
+    const gateway = createAiGateway({
+      config: configOf([{ name: 'p', provider: 'openai', model: 'gpt-4o', apiKeyRef: 'ai.key' }]),
+      secrets: KEYS,
+      fetchImpl: net.fetchImpl,
+    });
+
+    const result = await gateway.generateObject({ prompt: 'x', schema: OBJECT_SCHEMA });
+
+    const format = (net.single().body.text as { format: Record<string, unknown> }).format;
+    expect(format.type).toBe('json_schema');
+    expect(format.schema).toEqual(OBJECT_SCHEMA);
+    // Strict mode demands `additionalProperties: false` on every object and
+    // every property in `required`; manifest schemas are hand-written and
+    // satisfy neither, so strict on would 400 the first call a user made with
+    // their own key. See `objectOptions` in gateway.ts.
+    expect(format.strict).toBe(false);
+    expect(result.object).toEqual({ room: 'R1', seats: 4 });
+  });
+
+  it('sends the schema to Gemini as generationConfig.responseSchema', async () => {
+    const net = alwaysRespond(() => googleContent('{"room":"R1","seats":4}'));
+    const gateway = createAiGateway({
+      config: configOf([{ name: 'p', provider: 'google', model: 'gemini-2.5-pro', apiKeyRef: 'ai.key' }]),
+      secrets: KEYS,
+      fetchImpl: net.fetchImpl,
+    });
+
+    const result = await gateway.generateObject({ prompt: 'x', schema: OBJECT_SCHEMA });
+
+    const config = net.single().body.generationConfig as Record<string, unknown>;
+    expect(config.responseMimeType).toBe('application/json');
+    expect(config.responseSchema).toEqual(OBJECT_SCHEMA);
+    expect(result.object).toEqual({ room: 'R1', seats: 4 });
+  });
+
+  it('sends the schema to Anthropic as output_config.format', async () => {
+    const net = alwaysRespond(() => anthropicMessage('{"room":"R1"}'));
+    const gateway = createAiGateway({
+      config: configOf([{ name: 'p', provider: 'anthropic', model: 'claude-opus-5', apiKeyRef: 'ai.key' }]),
+      secrets: KEYS,
+      fetchImpl: net.fetchImpl,
+    });
+
+    await gateway.generateObject({ prompt: 'x', schema: OBJECT_SCHEMA });
+
+    const format = (net.single().body.output_config as { format: Record<string, unknown> }).format;
+    expect(format.type).toBe('json_schema');
+    // The SDK adds `additionalProperties: false` itself here, so this asserts
+    // the caller's own keys survived rather than deep-equality with the input.
+    expect(format.schema).toMatchObject({ properties: OBJECT_SCHEMA.properties, required: ['room'] });
+  });
+});
+
+/**
+ * The two hosted providers that are not Anthropic.
+ *
+ * They exist as first-class entries because routing them through
+ * `openai-compatible` cost structured output (see the generateObject cases
+ * above) — but the rest of what a first-class entry buys is here: the right
+ * host, the right auth header, and a key that came from the keychain and
+ * nowhere else.
+ */
+describe('OpenAI and Gemini as first-class providers', () => {
+  it('sends an OpenAI profile to the Responses API with a bearer key', async () => {
+    const net = alwaysRespond(() => openAiResponse('hello'));
+    const gateway = createAiGateway({
+      config: configOf([{ name: 'p', provider: 'openai', model: 'gpt-4o', apiKeyRef: 'ai.key' }]),
+      secrets: KEYS,
+      fetchImpl: net.fetchImpl,
+    });
+
+    const result = await gateway.generateText({ profile: 'p', prompt: 'x' });
+
+    const call = net.single();
+    expect(call.url).toBe('https://api.openai.com/v1/responses');
+    expect(call.headers.authorization).toBe('Bearer sk-ant-real-value');
+    expect(result.text).toBe('hello');
+  });
+
+  it('sends a Gemini profile to generateContent with the x-goog-api-key header', async () => {
+    const net = alwaysRespond(() => googleContent('hello'));
+    const gateway = createAiGateway({
+      config: configOf([{ name: 'p', provider: 'google', model: 'gemini-2.5-pro', apiKeyRef: 'ai.key' }]),
+      secrets: KEYS,
+      fetchImpl: net.fetchImpl,
+    });
+
+    const result = await gateway.generateText({ profile: 'p', prompt: 'x' });
+
+    const call = net.single();
+    expect(call.url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent');
+    // Not a bearer token: Gemini authenticates on its own header, which is
+    // precisely the kind of per-vendor fact a shared "compatible" path gets
+    // wrong.
+    expect(call.headers['x-goog-api-key']).toBe('sk-ant-real-value');
+    expect(call.headers.authorization).toBeUndefined();
+    expect(result.text).toBe('hello');
+  });
+
+  it('lets either be pointed at a proxy the user runs', async () => {
+    for (const [provider, model, respond, expected] of [
+      ['openai', 'gpt-4o', openAiResponse, 'https://proxy.internal/v1/responses'],
+      ['google', 'gemini-2.5-pro', googleContent, 'https://proxy.internal/v1/models/gemini-2.5-pro:generateContent'],
+    ] as const) {
+      const net = alwaysRespond(() => respond('hello'));
+      const gateway = createAiGateway({
+        config: configOf([
+          { name: 'p', provider, model, apiKeyRef: 'ai.key', baseUrl: 'https://proxy.internal/v1' },
+        ]),
+        secrets: KEYS,
+        fetchImpl: net.fetchImpl,
+      });
+
+      await gateway.generateText({ profile: 'p', prompt: 'x' });
+      expect(net.single().url).toBe(expected);
+    }
+  });
+
+  it('embeds through both of Gemini\'s two endpoints, and through OpenAI\'s one', async () => {
+    const openai = alwaysRespond(() => embeddingList([[0.1, 0.2]]));
+    const openaiGateway = createAiGateway({
+      config: configOf([
+        { name: 'p', provider: 'openai', model: 'gpt-4o', apiKeyRef: 'ai.key', embeddingModel: 'text-embedding-3-small' },
+      ]),
+      secrets: KEYS,
+      fetchImpl: openai.fetchImpl,
+    });
+    expect(await openaiGateway.embed({ values: ['a'] })).toEqual({ embeddings: [[0.1, 0.2]] });
+    expect(openai.single().url).toBe('https://api.openai.com/v1/embeddings');
+
+    // Google splits on batch size — one value goes to :embedContent and reads
+    // back a different shape than :batchEmbedContents. Both are exercised
+    // because a fixture serving one of them passes half the integration.
+    const batches: { values: string[]; vectors: number[][]; endpoint: string }[] = [
+      { values: ['a'], vectors: [[0.3, 0.4]], endpoint: ':embedContent' },
+      { values: ['a', 'b'], vectors: [[0.3, 0.4], [0.5, 0.6]], endpoint: ':batchEmbedContents' },
+    ];
+    for (const { values, vectors, endpoint } of batches) {
+      const net = recordFetch(googleEmbedding(vectors));
+      const gateway = createAiGateway({
+        config: configOf([
+          { name: 'p', provider: 'google', model: 'gemini-2.5-pro', apiKeyRef: 'ai.key', embeddingModel: 'text-embedding-004' },
+        ]),
+        secrets: KEYS,
+        fetchImpl: net.fetchImpl,
+      });
+
+      expect(await gateway.embed({ values })).toEqual({ embeddings: vectors });
+      expect(net.single().url.endsWith(endpoint)).toBe(true);
+    }
   });
 });
 

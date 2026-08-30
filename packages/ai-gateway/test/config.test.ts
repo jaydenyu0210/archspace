@@ -30,6 +30,7 @@ import {
   AI_CONFIG_FILENAME,
   defaultAiConfig,
   parseAiConfig,
+  PROVIDERS,
   serializeAiConfig,
   validateAiConfig,
   type AiGatewayConfig,
@@ -243,7 +244,12 @@ describe('validation keeps a broken profile and says what is wrong with it', () 
 
     expect(config.profiles.map((p) => p.name)).toEqual(['keeper']);
     expect(errorsOf(issues).map((i) => i.path)).toEqual(['profiles[0].name', 'profiles[1].provider', 'profiles[2]']);
-    expect(issues[1]?.message).toContain('expected one of anthropic, ollama, openai-compatible, mock');
+    // Every catalogue id, derived rather than transcribed: this assertion is
+    // about the message naming the whole of what IS accepted, and a hand-copied
+    // list turns adding a provider into a failing test with nothing wrong.
+    for (const provider of PROVIDERS) {
+      expect(issues[1]?.message).toContain(provider.id);
+    }
   });
 
   it('ignores the later of two profiles with the same name', () => {

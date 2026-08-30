@@ -18,10 +18,12 @@
  * the `cause` chain of the SDK's own error objects, which is where a leak would
  * arrive from a dependency rather than from our code.
  *
- * The last block pins the other half of §11: an ambient `ANTHROPIC_API_KEY` is
- * never a fallback. gateway.ts passes `apiKey` explicitly for exactly this
- * reason — an env var the keychain never saw makes "which key did that run
- * use?" unanswerable.
+ * The last block pins the other half of §11: an ambient provider key is never a
+ * fallback. gateway.ts passes `apiKey` explicitly for exactly this reason — an
+ * env var the keychain never saw makes "which key did that run use?"
+ * unanswerable. Every hosted provider carries its own such variable
+ * (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`), so
+ * the property is proved once per provider rather than assumed to generalise.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -37,7 +39,9 @@ import {
   anthropicFailure,
   anthropicMessage,
   configOf,
+  googleContent,
   keychain,
+  openAiResponse,
   recordFetch,
 } from './helpers.js';
 
@@ -237,6 +241,83 @@ describe('the keychain is the only source of a key', () => {
     expect(call.headers['x-api-key']).toBe(CANARY);
     expect(JSON.stringify(call)).not.toContain(ENV_CANARY);
   });
+
+  /**
+   * The same property for the two providers added after Anthropic.
+   *
+   * Each SDK package has its own ambient fallback — `OPENAI_API_KEY` and
+   * `GOOGLE_GENERATIVE_AI_API_KEY` — so the explicit `apiKey` in `createClient`
+   * has to be re-proved per provider rather than inherited from the Anthropic
+   * case above. The header names differ too, which is why this cannot be one
+   * loop over `x-api-key`.
+   */
+  const AMBIENT = [
+    {
+      provider: 'openai' as const,
+      model: 'gpt-4o',
+      env: 'OPENAI_API_KEY',
+      envCanary: 'sk-proj-FROM-THE-ENVIRONMENT',
+      respond: () => openAiResponse('ok'),
+      header: 'authorization',
+      sent: `Bearer ${CANARY}`,
+    },
+    {
+      provider: 'google' as const,
+      model: 'gemini-2.5-pro',
+      env: 'GOOGLE_GENERATIVE_AI_API_KEY',
+      envCanary: 'AIzaFROM-THE-ENVIRONMENT',
+      respond: () => googleContent('ok'),
+      header: 'x-goog-api-key',
+      sent: CANARY,
+    },
+  ];
+
+  for (const provider of AMBIENT) {
+    it(`sends the keychain value for ${provider.provider}, never the ambient ${provider.env}`, async () => {
+      const savedEnv = process.env[provider.env];
+      process.env[provider.env] = provider.envCanary;
+      try {
+        const net = alwaysRespond(provider.respond);
+        const gateway = createAiGateway({
+          config: configOf([
+            { name: 'p', provider: provider.provider, model: provider.model, apiKeyRef: 'ai.anthropic.api_key' },
+          ]),
+          secrets: secrets(),
+          fetchImpl: net.fetchImpl,
+        });
+
+        await gateway.generateText({ profile: 'p', prompt: 'x' });
+
+        const call = net.single();
+        expect(call.headers[provider.header]).toBe(provider.sent);
+        expect(JSON.stringify(call)).not.toContain(provider.envCanary);
+      } finally {
+        if (savedEnv === undefined) delete process.env[provider.env];
+        else process.env[provider.env] = savedEnv;
+      }
+    });
+
+    it(`leaves a keyless ${provider.provider} profile unbound rather than using ${provider.env}`, async () => {
+      const savedEnv = process.env[provider.env];
+      process.env[provider.env] = provider.envCanary;
+      try {
+        const gateway = createAiGateway({
+          config: configOf([{ name: 'p', provider: provider.provider, model: provider.model }]),
+          secrets: keychain(),
+          fetchImpl: NEVER_FETCH,
+        });
+
+        await expect(gateway.generateText({ prompt: 'x' })).rejects.toMatchObject({
+          name: 'AiProfileError',
+          reason: 'missing-key',
+        });
+        expect((await gateway.listProfiles())[0]?.readiness).toBe('missing-key');
+      } finally {
+        if (savedEnv === undefined) delete process.env[provider.env];
+        else process.env[provider.env] = savedEnv;
+      }
+    });
+  }
 
   it('does not quietly authenticate a profile that named no key', async () => {
     // The SDK's own `ANTHROPIC_API_KEY` fallback would make this request
