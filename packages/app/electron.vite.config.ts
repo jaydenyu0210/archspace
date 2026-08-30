@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { Plugin } from 'vite';
 
 // Workspace packages ship TypeScript source — `@archspace/*` resolve to a
 // `src/index.ts`, not to built JavaScript — so they MUST be bundled into the
@@ -36,6 +37,41 @@ const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8'))
 /** Workspace packages: TypeScript source, therefore never external. */
 const workspaceDeps = Object.keys(pkg.dependencies ?? {}).filter((d) => d.startsWith('@archspace/'));
 
+/**
+ * web-ifc's wasm as a `data:` URI the renderer can import.
+ *
+ * The 3D viewer (ADR-0003) must load this binary in the packaged app, whose
+ * window is `loadFile`'d from file:// — an origin where Chromium's fetch()
+ * refuses wasm URLs, so the usual `?url` asset import works in dev and fails
+ * only packaged. A data: URI takes the same fetch path successfully under
+ * both origins. Inlining via Vite's `?inline` suffix was tried and rejected
+ * by the build itself: Vite reserves bare `.wasm` for its `?init` helper and
+ * hands the binary to Rollup's JS parser instead of the asset pipeline. So
+ * the inlining is done here, explicitly, where the mechanism is stated
+ * rather than inferred from suffix behaviour that has shifted across Vite
+ * majors. `scripts/check-bundle.mjs` asserts the URI survived into the
+ * renderer bundle, because only a launched window would otherwise notice it
+ * missing.
+ *
+ * The path resolves through the package's own node_modules on purpose:
+ * web-ifc is a direct dependency, so pnpm guarantees the symlink exists
+ * there, version-locked to what the renderer imports.
+ */
+const WEB_IFC_WASM_ID = 'virtual:web-ifc-wasm';
+function webIfcWasmDataUri(): Plugin {
+  return {
+    name: 'archspace:web-ifc-wasm-data-uri',
+    resolveId(id) {
+      return id === WEB_IFC_WASM_ID ? `\0${WEB_IFC_WASM_ID}` : undefined;
+    },
+    load(id) {
+      if (id !== `\0${WEB_IFC_WASM_ID}`) return undefined;
+      const wasm = readFileSync(resolve(__dirname, 'node_modules/web-ifc/web-ifc.wasm'));
+      return `export default ${JSON.stringify(`data:application/wasm;base64,${wasm.toString('base64')}`)};`;
+    },
+  };
+}
+
 export default defineConfig({
   main: {
     build: {
@@ -60,6 +96,6 @@ export default defineConfig({
     },
   },
   renderer: {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), webIfcWasmDataUri()],
   },
 });

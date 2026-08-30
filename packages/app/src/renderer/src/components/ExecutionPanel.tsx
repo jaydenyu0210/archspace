@@ -19,6 +19,7 @@ import { useStore } from '../store';
 import type { RunEvent, OutputPreview } from '@archspace/engine';
 import type { AssetRef } from '@archspace/node-sdk';
 import { PlanView } from './PlanView';
+import { IfcView } from './IfcView';
 
 function eventLine(e: RunEvent, startedAt: number | null, nodeLabel: (id: string) => string): string | null {
   const t = startedAt ? `+${((e.at - startedAt) / 1000).toFixed(2)}s` : '';
@@ -63,10 +64,12 @@ function eventClass(e: RunEvent): string {
 /**
  * The asset card, with the one button that turns a produced file into a file.
  *
- * The bytes are not here and never will be — `AssetRef` is a hash, a size and a
- * name, and main reads the actual data from the engine (§7.6). So this is the
- * whole of the renderer's involvement in saving: hand back the ref it was
- * already given, and report what happened.
+ * The card itself never holds bytes — `AssetRef` is a hash, a size and a name,
+ * and for a save main reads the data from the engine and writes it without the
+ * renderer ever seeing it (§7.6). The one place the renderer DOES receive
+ * bytes is the IfcView mounted under this card for `ifc` assets: the fenced
+ * ADR-0003 exception, pulled on demand through `readAsset`, never through the
+ * event stream.
  *
  * The outcome is shown in place rather than in a toast, because the thing the
  * user wants next is the path they just wrote to.
@@ -149,7 +152,14 @@ function PreviewBlock({ preview }: { preview: OutputPreview }) {
       {p.kind === 'plan' && (
         <PlanView levels={p.levels} levelCount={p.levelCount} site={p.site} />
       )}
-      {p.kind === 'asset' && <AssetPreview asset={p.ref} />}
+      {p.kind === 'asset' && (
+        <>
+          <AssetPreview asset={p.ref} />
+          {/* The format tag, not the mediaType, is the port-type truth: it is
+              what `asset<ifc>` stamps on the wire (§6.2). */}
+          {p.ref.format === 'ifc' && <IfcView asset={p.ref} />}
+        </>
+      )}
       {p.kind === 'empty' && <div className="preview-note">no value</div>}
     </div>
   );

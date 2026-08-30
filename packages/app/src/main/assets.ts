@@ -2,11 +2,11 @@
  * Saving a run's output assets to disk.
  *
  * The bytes live in the engine child's content-addressed store and are written
- * here, in main. They are deliberately never handed to the renderer: §7.6 makes
- * output previews size-capped precisely so bulk data stops at the engine, and a
- * "save this file" button that first pulled a 500 KB IFC into a sandboxed
- * window would quietly undo that. So the renderer sends an `AssetRef` — the
- * same small value it already has from the run event — and main does the rest.
+ * here, in main: for a save the renderer needs only the path back, so it sends
+ * an `AssetRef` — the same small value it already has from the run event — and
+ * main does the rest. The bytes-to-the-renderer path that DOES exist is not
+ * this one: it is `asset-read.ts`, the fenced ADR-0003 viewer exception, kept
+ * in its own electron-free module so the fence itself is unit-testable.
  *
  * The dialog filter is derived from the asset rather than fixed, because this
  * is one button serving every format any node or MCP tool can produce.

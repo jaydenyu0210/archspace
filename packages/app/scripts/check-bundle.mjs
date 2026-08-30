@@ -66,4 +66,31 @@ if (offenders.length > 0) {
   process.exit(1);
 }
 
-console.log('bundle check: no workspace package left external');
+// Same spirit, second property: the IFC viewer's wasm rides in the renderer
+// bundle as an inlined `data:` URI, emitted by the web-ifc plugin in
+// electron.vite.config.ts (which records why a URL cannot work under the
+// packaged app's file:// origin). If that plugin is ever dropped or stops
+// producing the URI — a Vite major, a config change — every gate stays green
+// and the viewer breaks only in the packaged app, which is precisely the
+// class of escape this script exists to close.
+const WASM_DATA_URI = 'data:application/wasm;base64,';
+let wasmInlined = false;
+for (const file of await jsFilesIn(join(APP, 'out/renderer'))) {
+  if ((await readFile(file, 'utf8')).includes(WASM_DATA_URI)) {
+    wasmInlined = true;
+    break;
+  }
+}
+if (!wasmInlined) {
+  console.error(
+    'The renderer bundle does not contain the inlined web-ifc wasm ' +
+      `(no "${WASM_DATA_URI}" in out/renderer):\n` +
+      'the 3D preview will fail to initialize in the packaged app, where a wasm\n' +
+      'URL cannot be fetched from the file:// origin. Check the\n' +
+      'archspace:web-ifc-wasm-data-uri plugin in electron.vite.config.ts and its\n' +
+      'virtual:web-ifc-wasm import in src/renderer/src/components/IfcView.tsx.',
+  );
+  process.exit(1);
+}
+
+console.log('bundle check: no workspace package left external; viewer wasm inlined');

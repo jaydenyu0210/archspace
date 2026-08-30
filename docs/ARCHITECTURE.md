@@ -385,7 +385,7 @@ node:skipped       { nodeId, reason }
 run:finished       { status: succeeded|failed|partial|cancelled, stats }
 ```
 
-The renderer folds events into UI state; the CLI prints them; the run manifest (§11) persists them as NDJSON. One protocol, three consumers — which is also why the engine is testable without a UI (§14). Output **previews** are computed engine-side and size-capped (~64 KB: truncated text, table head, image thumbnail); the renderer never touches raw bulk data.
+The renderer folds events into UI state; the CLI prints them; the run manifest (§11) persists them as NDJSON. One protocol, three consumers — which is also why the engine is testable without a UI (§14). Output **previews** are computed engine-side and size-capped (~64 KB: truncated text, table head, image thumbnail); the event stream never carries raw bulk data. The one sanctioned exception to bulk-free renderer traffic is the §3.3 3D preview panel, which pulls an `asset<ifc>`'s bytes on demand over a dedicated, validated IPC (`asset:read`) bounded by `MAX_VIEWER_ASSET_BYTES` — a fenced doorway beside the event stream, not a hole in it.
 
 ## 8. The plugin boundary
 

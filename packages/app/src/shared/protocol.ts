@@ -93,13 +93,16 @@ export type EngineControlRequest =
   | { t: 'config'; mcp: McpConfig; ai: AiGatewayConfig; pluginConsent: PluginConsentState }
   /**
    * Read one asset's bytes out of the engine's store, so main can write them
-   * to a file the user picked.
+   * to a file the user picked, or hand them to the 3D preview panel.
    *
    * This is the one request that flows main → engine rather than the other way
    * round, and it goes over the control channel rather than the renderer's
-   * because of §7.6: bulk bytes never travel to the renderer. The renderer
-   * asks main to save an AssetRef; main fetches the bytes here and writes them
-   * itself, so a 500 KB IFC never crosses into a sandboxed window.
+   * because of §7.6: the renderer⇄engine port carries the event stream and its
+   * size-capped previews, never bulk data. Two consumers sit behind it: Save,
+   * where main writes the bytes to disk and the renderer sees only the path,
+   * and the ADR-0003 IFC viewer, where main forwards them to the renderer —
+   * bounded by MAX_VIEWER_ASSET_BYTES and validated against the ref, because
+   * that hop is the deliberate, fenced exception to §7.6 rather than a leak.
    */
   | { t: 'asset-read'; requestId: number; ref: AssetRef }
   /** Reply to an engine-issued secret request (value present only on success). */
@@ -147,6 +150,33 @@ export type SaveResult =
   | { ok: true; path: string }
   | { ok: false; error: string }
   | { ok: false; cancelled: true };
+
+/**
+ * Reply to `readAsset` — the 3D viewer's byte fetch.
+ *
+ * A discriminated union rather than a thrown error because every failure here
+ * is an expected state the UI must render, not a bug: the engine restarted and
+ * the store died with it, the asset is over the viewer's size ceiling, the
+ * bytes came back the wrong length. `error` is a full sentence for exactly the
+ * reason saveAsset's messages are — the store is session-scoped, so the most
+ * common failure ("run it again") needs explaining, not just reporting.
+ */
+export type ReadAssetResult =
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; error: string };
+
+/**
+ * The most bytes `readAsset` will hand a sandboxed window.
+ *
+ * The ceiling exists because a read is three whole-file copies in flight —
+ * engine → main → renderer, each a structured clone — and because §7.6's
+ * event-stream previews are size-capped precisely so the renderer's memory is
+ * never hostage to an output's size. 64 MiB is far above any mock output
+ * (the shipped example's IFC is ~500 KB) while still letting a real BIM
+ * backend's model through; past it, the answer is Save and an external viewer,
+ * which the error message says.
+ */
+export const MAX_VIEWER_ASSET_BYTES = 64 * 1024 * 1024;
 
 export type MenuAction =
   | 'new'
@@ -279,10 +309,25 @@ export interface ArchspaceBridge {
   /**
    * Write one of a run's output assets to a file the user picks.
    *
-   * Takes the ref, not the bytes: the renderer has never held them and should
-   * not start. Main reads them from the engine and writes the file.
+   * Takes the ref, not the bytes: for a save the renderer never needs them.
+   * Main reads them from the engine and writes the file itself.
    */
   saveAsset(ref: AssetRef): Promise<SaveResult>;
+
+  /**
+   * Read one output asset's bytes into the renderer, for the ADR-0003 3D
+   * preview panel.
+   *
+   * This is the single sanctioned exception to §7.6's "bulk data stops at the
+   * engine": a viewer cannot exist without the model, and the file the mock
+   * BIM node writes is exactly the thing worth looking at. The exception is
+   * fenced rather than open-ended — main refuses refs over
+   * MAX_VIEWER_ASSET_BYTES and bytes whose length disagrees with the
+   * content-addressed ref, and the event-stream previews stay size-capped as
+   * before. Callers must treat a failure as a state to render, not retry:
+   * the store lives only as long as the engine child does.
+   */
+  readAsset(ref: AssetRef): Promise<ReadAssetResult>;
 }
 
 /**

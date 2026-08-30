@@ -539,6 +539,68 @@ if (demoted.promotedPorts !== 0 || demoted.inPorts !== promoteBefore.inPorts) {
   fail(`demoting left ${demoted.promotedPorts} promoted ports and ${demoted.inPorts} inputs (started at ${promoteBefore.inPorts})`);
 }
 
+/**
+ * The 3D model draws (ADR-0003).
+ *
+ * The chain under test spans all three processes and is exercised nowhere
+ * else: readAsset over the preload bridge, main's asset:read handler, the
+ * engine's control-channel byte read, the inlined wasm booting under this
+ * window's origin, and web-ifc parsing the run's actual IFC. Assertions are
+ * DOM facts derived from parsed geometry, never pixels — a caption that says
+ * "636 walls" can only come from a parse that found them. The caption's
+ * numbers are cross-checked against the summary port's JSON preview in the
+ * same panel: the writer's bookkeeping and an independent parser reading the
+ * file, agreeing in front of the user. Equality holds because the example
+ * has no degenerate products; the unit suite covers where the two counts
+ * legitimately diverge.
+ */
+await evaluate(ws, 950, `(() => {
+  const node = [...document.querySelectorAll('.react-flow__node')]
+    .find(n => /Generate BIM Model/i.test(n.innerText));
+  if (!node) return '"no-node"';
+  node.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  node.click();
+  return '"ok"';
+})()`);
+
+let ifc = null;
+for (let i = 0; i < 20 && !ifc?.settled; i++) {
+  await new Promise((r) => setTimeout(r, 500));
+  ifc = await evaluate(ws, 951 + i, `JSON.stringify({
+    settled: !!document.querySelector('.ifc-caption') || !!document.querySelector('.ifc-error'),
+    error: document.querySelector('.ifc-error')?.innerText ?? null,
+    caption: document.querySelector('.ifc-caption')?.innerText ?? null,
+    canvasW: document.querySelector('.ifc-canvas canvas')?.clientWidth ?? 0,
+    canvasH: document.querySelector('.ifc-canvas canvas')?.clientHeight ?? 0,
+    storeyButtons: document.querySelectorAll('.ifc-storeys .ifc-storey').length,
+    bridge: typeof window.archspace?.readAsset,
+    summary: [...document.querySelectorAll('.preview-pre')].map(e => e.innerText).join('\\n').slice(0, 4000),
+  })`);
+}
+if (ifc?.bridge !== 'function') fail(`window.archspace.readAsset is ${ifc?.bridge} — the preload bridge does not expose it`);
+if (!ifc?.settled) fail('the 3D viewer reported neither a model nor an error — the readAsset round trip or the wasm boot never returned');
+if (ifc.error) fail(`the 3D viewer errored in-app: ${ifc.error}`);
+const counted = /(\d+) walls · (\d+) doors · (\d+) spaces/.exec(ifc.caption ?? '');
+if (!counted) fail(`the viewer caption is not counting geometry: ${ifc.caption}`);
+for (const [entity, drawn] of [['IfcWall', counted[1]], ['IfcDoor', counted[2]], ['IfcSpace', counted[3]]]) {
+  const recorded = new RegExp(`"${entity}":\\s*(\\d+)`).exec(ifc.summary ?? '');
+  if (!recorded) fail(`the summary preview shows no ${entity} count to check the viewer against`);
+  if (recorded[1] !== drawn) {
+    fail(`the viewer drew ${drawn} ${entity} but the writer recorded ${recorded[1]} — parser and writer disagree`);
+  }
+}
+if (!(ifc.canvasW > 0 && ifc.canvasH > 0)) fail(`the viewer canvas is ${ifc.canvasW}x${ifc.canvasH} — nothing is on screen`);
+if (ifc.storeyButtons !== 7) fail(`expected All + 6 storey buttons on the viewer; found ${ifc.storeyButtons}`);
+
+// Isolating a storey must register. The geometry change itself is mesh
+// visibility on the GPU, but the state driving it is this DOM toggle.
+await evaluate(ws, 972, `[...document.querySelectorAll('.ifc-storeys .ifc-storey')][3]?.click(), '"ok"'`);
+await new Promise((r) => setTimeout(r, 300));
+const isolated = await evaluate(ws, 973, `JSON.stringify({
+  current: document.querySelector('.ifc-storeys .ifc-storey.is-current')?.innerText ?? null,
+})`);
+if (isolated?.current !== '3') fail(`clicking viewer storey 3 left "${isolated?.current}" selected`);
+
 // A file dropped on the canvas must not take the window with it.
 //
 // `onDragOver` calls `preventDefault` for every drag so the palette can drop
@@ -648,5 +710,6 @@ console.log(
     `       saved through the UI — clicked Save on the DXF exporter, ${savedBytes.byteLength} bytes of valid R12 landed on disk\n` +
     `       refused to navigate \u2014 a dropped file was cancelled and a scripted location change did not leave ${hrefBefore}\n` +
     `       promotion clicked \u2014 ${promoteBefore.buttons} promotable param${promoteBefore.buttons === 1 ? '' : 's'} offered; promoting file_name took the exporter ${promoteBefore.inPorts} \u2192 ${promoteAfter.inPorts} input ports, demoting put it back\n` +
+    `       3D model drew \u2014 ${counted[1]} walls / ${counted[2]} doors / ${counted[3]} spaces matched the writer's summary; storey filter live on a ${ifc.canvasW}x${ifc.canvasH} canvas\n` +
     `       reloaded itself and came back \u2014 the navigation guard refuses other documents, not its own`,
 );

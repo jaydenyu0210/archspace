@@ -66,7 +66,7 @@ documents, which is a seam masquerading as a feature.
 | `aec.review.filter_findings`, `merge_findings` | **Real** — pure set operations over review results; no backend stands behind them |
 | The plugin boundary those seven nodes ride on | **Real** — a genuine separate OS process, install-time consent, capability RPC, crash containment |
 | Autodesk / Revit / APS | **Not implemented** — see above |
-| 3D / IFC preview (three.js + web-ifc, [ADR-0003](adr/0003-frontend-and-canvas.md)) | **Not built.** Designed, dependencies not even installed |
+| 3D / IFC preview (three.js + web-ifc, [ADR-0003](adr/0003-frontend-and-canvas.md)) | **Real.** An `asset<ifc>` output previews as an orbitable 3D panel in the execution pane: web-ifc (an independent parser — the file is shown as it IS, not as the writer meant it) streams the geometry into merged per-storey/per-category meshes, coloured by the viewer since the mock writer emits no styles; storey isolation and a spaces toggle (room volumes default hidden — they occlude everything); caption counts what was actually drawn. Bytes reach the sandboxed renderer through one fenced IPC (`asset:read`, capped at 64 MiB, content-address-checked) — the deliberate exception to §7.6, recorded there. The wasm rides the renderer bundle as a data: URI because file:// cannot fetch it packaged; `check-bundle.mjs` guards that. Parse/group/transform logic is pure and node-tested against the real writer's output through web-ifc's node build (`test/ifc-scene.test.ts`); the smoke test cross-checks drawn counts against the summary port in a live window. Not built: per-element selection/properties, sections, measurements — a viewer, not an editor (non-goal per §1) |
 | macOS packaging (`pnpm dist`) | **Real, and verified.** Produces a universal .dmg and .zip; the packaged app launches, renders, and opens the bundled example. Unsigned unless a Developer ID identity is present — see [docs/releasing.md](releasing.md) §8 for exactly what was observed |
 | Signing, notarization, Homebrew cask | **Not done.** No Developer ID identity, no tag pushed, so `release.yml` has never run |
 | Auto-update | **Wired, unproven.** Reads the GitHub Releases feed on launch and ships in the bundle. The repository is public, so the anonymous read an updater needs would work — but nothing has ever been published at that feed, so no release has exercised any of it |
@@ -106,7 +106,7 @@ inspector display.
 - **Migrations and document lint are unbuilt**, and `archspace: 2` is a hard
   parse failure with no upgrade path. Survivable only because the format has
   never changed — see the M1 note in [ARCHITECTURE §16](ARCHITECTURE.md).
-- No 3D/IFC preview and no published release — see the status table above.
+- No published release — see the status table above.
 
 ---
 

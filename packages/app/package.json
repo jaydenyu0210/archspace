@@ -2,7 +2,7 @@
   "name": "@archspace/app",
   "version": "0.1.0",
   "private": true,
-  "description": "Archspace desktop shell: Electron main + renderer (ARCHITECTURE \u00a73)",
+  "description": "Archspace desktop shell: Electron main + renderer (ARCHITECTURE §3)",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "node scripts/check-electron.mjs && electron-vite dev",
@@ -28,6 +28,8 @@
     "electron-updater": "^6.8.9",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "three": "0.185.1",
+    "web-ifc": "0.0.77",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -35,6 +37,7 @@
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
+    "@types/three": "0.185.4",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^44.0.0",
     "electron-builder": "^26.15.3",

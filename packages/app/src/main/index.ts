@@ -35,9 +35,11 @@ import type {
   MenuAction,
   PlatformInfo,
   PluginConsentState,
+  ReadAssetResult,
   SaveResult,
   SettingsResult,
 } from '../shared/protocol';
+import { readAssetForViewer } from './asset-read';
 import { saveAsset } from './assets';
 import { openDefault, openPath, openWithDialog, save, setPluginNamespaces } from './documents';
 import { authorize, cancelAuthorization } from './oauth';
@@ -575,6 +577,14 @@ ipcMain.handle('asset:save', async (_e, ref: AssetRef): Promise<SaveResult> => {
   if (!isAssetRef(ref)) return { ok: false, error: 'not an asset reference' };
   if (win === null) return { ok: false, error: 'no window to show a save dialog in' };
   return saveAsset(win, ref, readAssetBytes);
+});
+
+// The 3D viewer's byte fetch (ADR-0003) — the fenced exception to §7.6. The
+// guard runs here as well as in the renderer because the renderer is sandboxed
+// and its checks are a courtesy, not a boundary.
+ipcMain.handle('asset:read', async (_e, ref: AssetRef): Promise<ReadAssetResult> => {
+  if (!isAssetRef(ref)) return { ok: false, error: 'not an asset reference' };
+  return readAssetForViewer(ref, readAssetBytes);
 });
 
 ipcMain.handle('autodesk:capabilities', () => AUTODESK_CAPABILITIES);

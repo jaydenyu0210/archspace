@@ -51,6 +51,7 @@ const bridge: ArchspaceBridge = {
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
 
   saveAsset: (ref) => ipcRenderer.invoke('asset:save', ref),
+  readAsset: (ref) => ipcRenderer.invoke('asset:read', ref),
 };
 
 contextBridge.exposeInMainWorld('archspace', bridge);
