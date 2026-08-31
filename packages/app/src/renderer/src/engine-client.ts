@@ -199,6 +199,26 @@ export function startWorkflowRun(): void {
   send({ t: 'run', runId, graph });
 }
 
+/**
+ * Run a graph the renderer built rather than one the canvas holds.
+ *
+ * The design chat's entry point. It is deliberately the same `run` message and
+ * the same single-run state as the canvas: the engine has one notion of a run
+ * (§7.6), and giving the chat a private one would mean two things claiming the
+ * status light. The caller keeps the returned id to recognise its own events.
+ *
+ * Returns null when a run is already active, which the caller reports in its
+ * own words — the canvas says "cancel it first", and a chat should not.
+ */
+export function startGraphRun(graph: EngineGraph): string | null {
+  const store = useStore.getState();
+  if (store.run.running) return null;
+  const runId = `run_${Date.now().toString(36)}_${(runSeq++).toString(36)}`;
+  store.runStarted(runId);
+  send({ t: 'run', runId, graph });
+  return runId;
+}
+
 export function cancelWorkflowRun(): void {
   const store = useStore.getState();
   if (store.run.runId && store.run.running) {

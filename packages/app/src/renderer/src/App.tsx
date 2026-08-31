@@ -23,7 +23,7 @@
  * `Settings` is mounted only while open so that focus capture, focus restore
  * and each panel's fetches happen per opening rather than once per launch.
  */
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { NodeLibrary } from './components/NodeLibrary';
 import { Canvas } from './components/Canvas';
@@ -32,6 +32,7 @@ import { ExecutionPanel } from './components/ExecutionPanel';
 import { ExecPanelDivider } from './components/ExecPanelDivider';
 import { Notices } from './components/Notices';
 import { Settings } from './components/Settings';
+import { DesignChat } from './components/DesignChat';
 import { useStore } from './store';
 import { cancelWorkflowRun, startWorkflowRun } from './engine-client';
 import type { MenuAction } from '../../shared/protocol';
@@ -46,6 +47,9 @@ function isEditingText(target: EventTarget | null): boolean {
 export default function App() {
   const dirty = useStore((s) => s.dirty);
   const settingsOpen = useStore((s) => s.settingsOpen);
+  // Local, not store state: nothing outside App opens this, and the menu and
+  // the toolbar both reach it through the same setter.
+  const [chatOpen, setChatOpen] = useState(false);
   const savingRef = useRef(false);
 
   const doSave = useCallback(async (saveAs: boolean) => {
@@ -160,7 +164,12 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Toolbar onSave={() => void doSave(false)} onOpen={() => void doOpen()} onNew={doNew} />
+      <Toolbar
+        onSave={() => void doSave(false)}
+        onOpen={() => void doOpen()}
+        onNew={doNew}
+        onDescribe={() => setChatOpen(true)}
+      />
       <div className="app-main">
         <NodeLibrary />
         <Canvas />
@@ -172,6 +181,7 @@ export default function App() {
       {/* Mounted only while open, so focus capture/restore and the panels'
           own fetches run once per opening rather than once per app launch. */}
       {settingsOpen && <Settings />}
+      {chatOpen && <DesignChat onClose={() => setChatOpen(false)} />}
     </div>
   );
 }

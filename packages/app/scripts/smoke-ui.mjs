@@ -282,6 +282,32 @@ for (const tab of SETTINGS_TABS) {
   panels.push(`${tab}:${seen.chars}`);
 }
 /**
+ * The Describe panel mounts and can be typed into.
+ *
+ * Deliberately stops short of pressing Build: this profile has no AI binding,
+ * and `aec.brief_from_text` has no deterministic fallback, so a run here would
+ * assert the failure path rather than the feature. What this guards is the
+ * class of bug smoke exists for — a panel that renders nothing and says
+ * nothing, the way the Inspector once did. The full text-to-model path is
+ * covered by the graph's unit tests and by driving it against a mock provider.
+ */
+await evaluate(ws, 940, `document.querySelector('.tb-describe')?.click(), '"ok"'`);
+await new Promise((r) => setTimeout(r, 600));
+const chat = await evaluate(ws, 941, `JSON.stringify({
+  dialog: !!document.querySelector('.chat-modal'),
+  input: !!document.querySelector('.chat-input'),
+  suggestions: document.querySelectorAll('.chat-suggestion').length,
+  build: [...document.querySelectorAll('.chat-compose button')].some(b => /Build/.test(b.innerText)),
+})`);
+if (!chat?.dialog) fail('the Describe button did not open the design chat');
+if (!chat.input || !chat.build) fail('the design chat opened without a composer — input:' + chat.input + ' build:' + chat.build);
+if (chat.suggestions === 0) fail('the design chat offered no example descriptions, so an empty panel teaches nothing');
+await evaluate(ws, 942, `document.querySelector('.chat-modal')?.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})), '"ok"'`);
+await new Promise((r) => setTimeout(r, 400));
+const chatClosed = await evaluate(ws, 943, `JSON.stringify(!document.querySelector('.chat-modal'))`);
+if (chatClosed !== true) fail('Escape did not close the design chat');
+
+/**
  * Binding an AI provider from its name, which is a WRITE all the way to disk.
  *
  * The AI panel's provider row is the one place the app creates a model profile
@@ -775,6 +801,7 @@ console.log(
     `       settings tabs rendered — ${panels.join(', ')} (characters)\n` +
     `       consent granted in-app — palette ${before.types} -> ${consented.types} types, ${consented.reviewTypes} from the plugin\n` +
     `       AI provider bound in one click — ${aiBefore.rows} rows -> ${aiAfter.rows}, "${aiAfter.counter}", written through to ai.yaml and read back\n` +
+    `       design chat opens — composer, ${chat.suggestions} example descriptions, closes on Escape\n` +
     `       ${(run.final ?? '').trim()}\n` +
     `       floor plan drew — ${plan.rooms} rooms, ${plan.walls} walls, ${plan.labels} labels\n` +
     `       storey switcher — ${storeys.buttons} storeys, switching to 4 redrew the plan; panel resized ${beforeDrag} -> ${afterDrag.preview}px\n` +

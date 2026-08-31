@@ -68,10 +68,29 @@ export const BRIEF_SCHEMA: JsonSchemaObject = {
     projectName: { type: 'string', description: 'A short project name. Invent one if the text does not give it.' },
     buildingType: { type: 'string', enum: [...BUILDING_TYPES] },
     codeVersion: { type: 'string', enum: [...CODE_VERSIONS], description: 'Default to IBC 2024 unless the text says otherwise.' },
-    siteWidthM: { type: 'number', description: `Site width in metres, ${SITE_MIN_M}–${SITE_MAX_M}.` },
-    siteDepthM: { type: 'number', description: `Site depth in metres, ${SITE_MIN_M}–${SITE_MAX_M}.` },
-    floors: { type: 'integer', description: `Number of storeys, 1–${FLOORS_MAX}.` },
-    targetGrossAreaM2: { type: 'number', description: 'Total gross floor area wanted, in square metres.' },
+    // The bounds are declared, not merely described. A provider's structured
+    // output mode enforces them, and the `mock` provider generates inside them
+    // — which is what lets an offline demo reach a model at all, since every
+    // one of these is refused by the gate below when it arrives out of range.
+    // The gate still checks: a schema is a request, and the file is the record.
+    siteWidthM: {
+      type: 'number',
+      minimum: SITE_MIN_M,
+      maximum: SITE_MAX_M,
+      description: `Site width in metres, ${SITE_MIN_M}–${SITE_MAX_M}.`,
+    },
+    siteDepthM: {
+      type: 'number',
+      minimum: SITE_MIN_M,
+      maximum: SITE_MAX_M,
+      description: `Site depth in metres, ${SITE_MIN_M}–${SITE_MAX_M}.`,
+    },
+    floors: { type: 'integer', minimum: 1, maximum: FLOORS_MAX, description: `Number of storeys, 1–${FLOORS_MAX}.` },
+    targetGrossAreaM2: {
+      type: 'number',
+      minimum: MIN_AREA_M2,
+      description: 'Total gross floor area wanted, in square metres. It must fit the site.',
+    },
     occupancyClass: {
       type: 'string',
       enum: [...OCCUPANCY_CLASSES],

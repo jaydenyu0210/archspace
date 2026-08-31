@@ -15,7 +15,12 @@
 import { useStore } from '../store';
 import { cancelWorkflowRun, startWorkflowRun } from '../engine-client';
 
-export function Toolbar(props: { onSave(): void; onOpen(): void; onNew(): void }) {
+export function Toolbar(props: {
+  onSave(): void;
+  onOpen(): void;
+  onNew(): void;
+  onDescribe(): void;
+}) {
   const name = useStore((s) => s.meta.name);
   const dirty = useStore((s) => s.dirty);
   const running = useStore((s) => s.run.running);
@@ -39,6 +44,15 @@ export function Toolbar(props: { onSave(): void; onOpen(): void; onNew(): void }
         <button className="tb" onClick={undo} disabled={!canUndo} title="Undo (⌘Z)">↶</button>
         <button className="tb" onClick={redo} disabled={!canRedo} title="Redo (⇧⌘Z)">↷</button>
       </div>
+      {/* The way in for someone who has not learned the canvas yet: it runs
+          the same four nodes they would otherwise wire by hand. */}
+      <button
+        className="tb tb-describe"
+        onClick={props.onDescribe}
+        title="Describe a building in words and get a model"
+      >
+        Describe…
+      </button>
       <div className="toolbar-group">
         <button className="tb" onClick={props.onNew} title="New workflow (⌘N)">New</button>
         <button className="tb" onClick={props.onOpen} title="Open… (⌘O)">Open</button>
