@@ -1,6 +1,6 @@
 {
   "name": "@archspace/plugin-host",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Out-of-process plugin loader: manifest, consent, supervised child processes, capability RPC (ARCHITECTURE §8 / ADR-0008)",

@@ -1,6 +1,6 @@
 {
   "name": "@archspace/nodes-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Built-in nodes. This build ships the aec.* concept-design set with mock backends.",

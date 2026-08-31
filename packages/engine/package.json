@@ -1,6 +1,6 @@
 {
   "name": "@archspace/engine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Demand-driven memoized DAG execution: lanes, cancellation, retry, event stream (ARCHITECTURE \u00a77 / ADR-0007)",

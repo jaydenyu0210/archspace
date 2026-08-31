@@ -1,6 +1,6 @@
 {
   "name": "@archspace/ai-gateway",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Provider-agnostic AI gateway: named model profiles over the AI SDK provider layer (ARCHITECTURE §10 / ADR-0010)",

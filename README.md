@@ -11,10 +11,12 @@ It is aimed at people who already automate AEC work in Dynamo, Grasshopper or
 pyRevit and want AI calls, external tools and file operations in the *same*
 graph, under version control.
 
-> **This is an early preview (v0.1.0).** Several of the design nodes are
+> **This is an early preview (v0.2.0).** Several of the design nodes are
 > realistic mocks rather than real engines — see
 > [What's real and what isn't](#whats-real-and-what-isnt). Please read that
-> before judging it.
+> before judging it. The published builds are **unsigned**: macOS and Windows
+> will both warn, because no Developer ID certificate exists for this project
+> yet.
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "@archspace/node-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Public node contract: NodeManifest, NodeModule, NodeContext, registry, testkit (ARCHITECTURE \u00a75 / ADR-0005)",

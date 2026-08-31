@@ -1,6 +1,6 @@
 {
   "name": "@archspace/document",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Workflow document: canonical comment-preserving YAML, CST patching, lint (ARCHITECTURE §4 / ADR-0004)",

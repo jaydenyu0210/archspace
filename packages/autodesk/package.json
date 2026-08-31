@@ -1,6 +1,6 @@
 {
   "name": "@archspace/autodesk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Autodesk/Revit capability map: what exists today, what is Windows-only, and what is an unimplemented seam (docs/research/ecosystem.md)",
