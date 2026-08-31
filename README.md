@@ -23,9 +23,9 @@ graph, under version control.
 ## Get it running
 
 **Running from source is currently the most reliable way**, on any platform. It
-takes a few minutes and needs no signed binary — which matters, because the
-Windows installer is refused outright on newer machines and there is no macOS
-download yet. Both are explained below.
+takes a few minutes and needs no signed binary — which matters, because neither
+download is signed: the Windows installer is refused outright on newer machines,
+and macOS blocks its .dmg until you override it. Both are explained below.
 
 ### From source — Windows, macOS, Linux
 
@@ -69,18 +69,20 @@ Windows** and it lowers protection for every app on the machine. Running from
 source is the better answer. A signed build is tracked in
 [ADR-0014](docs/adr/0014-windows-packaging.md).
 
-Two things worth knowing about the download: **the packaged installer has never
-successfully launched on Windows** — every attempt so far was blocked before it
-ran — and **it predates the DXF export, the IFC geometry, the drawn floor plan
-and the Save button**. Source has all of them. Please
+One thing worth knowing: **the packaged installer has never successfully
+launched on Windows** — every attempt so far was blocked before it ran, so
+nothing about it is confirmed working beyond the fact that it builds. Please
 [open an issue](https://github.com/jaydenyu0210/archspace/issues) with whatever
 you hit.
 
 ### macOS download
 
-Not yet. The app builds and runs on macOS, but a download needs Apple signing
-and notarisation or macOS refuses to open it. Until that is set up, run it from
-source.
+**[Download it](https://github.com/jaydenyu0210/archspace/releases/latest)** —
+a universal `.dmg` for Apple Silicon and Intel. It is **not signed or
+notarised**, so macOS refuses it on first launch: right-click the app →
+**Open** → **Open**. Signing needs an Apple Developer ID certificate, which
+this project does not have yet ([ADR-0012](docs/adr/0012-macos-packaging.md));
+running from source avoids the whole question.
 
 ---
 
@@ -124,20 +126,27 @@ Being straight about this matters more than looking finished.
 
 - The workflow format, the canvas, and the execution engine
 - The plugin system, the MCP client, and the AI nodes — the AI nodes call real
-  providers (Anthropic, Ollama, or any OpenAI-compatible endpoint) once you add
-  a model profile in Settings
+  providers (Anthropic, OpenAI, Google Gemini, Ollama, or any OpenAI-compatible
+  endpoint) once you add a model profile in Settings
 - The rule-based nodes: briefs, space programs, parking estimates, room
   schedules, adjacency, CSV export — plain calculations over your actual inputs
+- **Describing a building in words.** `Brief from Text` reads a sentence into a
+  project brief, and massing and floor-plan generation will ask a model to
+  choose the *scheme* — the footprint, or which way the corridor runs and
+  whether it is loaded on one or both sides. See
+  [`docs/examples/text-to-bim.archspace.yaml`](docs/examples/text-to-bim.archspace.yaml)
 
 **Realistic mocks, not real engines:**
 
-- Floor-plan, massing, structural-grid and BIM generation
+- Structural-grid and BIM generation, and the geometry inside floor-plan and
+  massing generation — a model picks the scheme, but every coordinate, area and
+  ratio is still computed by code, never sampled
 - The five review disciplines (code, accessibility, zoning, structural, energy)
 
-They produce structured, repeatable, plausible output with no network and no
-model behind them, and each says "Mock …" in its own description. What *is* real
-about them is the shape of what they return: a genuine backend can be
-substituted later without redesigning a single workflow.
+They produce structured, repeatable, plausible output, and with no model bound
+they need no network at all. What *is* real about them is the shape of what
+they return: a genuine backend can be substituted later without redesigning a
+single workflow.
 
 **Files it can produce:**
 

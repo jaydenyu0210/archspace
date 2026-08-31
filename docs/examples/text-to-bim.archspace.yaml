@@ -1,0 +1,71 @@
+# Describe a building; get an IFC model.
+#
+# The shortest path from a sentence to geometry. Type into the FIRST node's
+# Description field, press Run, and the chain does the rest:
+#
+#   text → brief → space program → floor plan → IFC model
+#
+# Three of those four steps ask a model something, and each asks for the thing
+# a model is good at rather than the thing it is not:
+#
+#   - `aec.brief_from_text` reads the description into nine scalars.
+#   - `aec.generate_floor_plan` on `auto` picks the circulation parti — which
+#     way the spine runs, single or double loaded, corridor width, room depth.
+#   - `aec.generate_bim_model` is NOT one of them: it is arithmetic over the
+#     plan, and every coordinate in the IFC is computed rather than sampled.
+#
+# WHY THIS LIVES IN docs/ AND NOT IN THE APP'S BUNDLED EXAMPLES: CI runs every
+# workflow in packages/app/resources with no API key, and `brief_from_text` has
+# no deterministic fallback — there is no way to read a paragraph without a
+# model, and a node that emitted a default brief while ignoring what you typed
+# would be worse than one that says it cannot work. So this one needs a bound
+# AI profile. Open it with File → Open.
+archspace: 1
+kind: workflow
+meta:
+  name: Text to BIM
+  description: A sentence in, an IFC model out. Needs an AI model profile bound on this machine.
+
+requires:
+  mcp: []
+  ai: [default]
+  plugins: []
+
+nodes:
+  # ── The only thing you have to fill in. ────────────────────────────────────
+  - id: n_text01
+    type: aec.brief_from_text
+    version: 1
+    config:
+      description: |
+        A four-storey neighbourhood library on a 40 by 30 metre corner plot,
+        around 3,000 m² in total. Generous daylight, a reading room that
+        faces the street, and a single circulation spine.
+      # Blank uses this machine's default profile.
+      profile: ''
+
+  - id: n_prog01
+    type: aec.space_program
+    version: 1
+    config: {}
+
+  # `backend: auto` is the default and is stated here only so the example
+  # documents itself: with a profile bound a model chooses the parti, and
+  # without one this degrades to the deterministic layout and says so in the
+  # run log rather than failing.
+  - id: n_plan01
+    type: aec.generate_floor_plan
+    version: 1
+    config:
+      backend: auto
+
+  - id: n_bim01
+    type: aec.generate_bim_model
+    version: 1
+    config: {}
+
+edges:
+  - n_text01.brief -> n_prog01.brief
+  - n_text01.brief -> n_plan01.brief
+  - n_prog01.program -> n_plan01.program
+  - n_plan01.floor_plan -> n_bim01.floor_plan

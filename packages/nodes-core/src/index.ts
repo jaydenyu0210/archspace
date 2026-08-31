@@ -30,6 +30,7 @@ import { generateMassingNode } from './massing.js';
 import { generateRoomScheduleNode } from './room-schedule.js';
 import { generateStructuralGridNode } from './structural-grid.js';
 import { parkingEstimateNode } from './parking-estimate.js';
+import { briefFromTextNode } from './brief-from-text.js';
 import { projectBriefNode } from './project-brief.js';
 import { siteConstraintsNode } from './site-constraints.js';
 import { spaceProgramNode } from './space-program.js';
@@ -53,6 +54,7 @@ export { generateMassingNode, type GenerateMassingParams } from './massing.js';
 export { generateRoomScheduleNode, type GenerateRoomScheduleParams } from './room-schedule.js';
 export { generateStructuralGridNode, type GenerateStructuralGridParams } from './structural-grid.js';
 export { parkingEstimateNode, type ParkingEstimateParams } from './parking-estimate.js';
+export { briefFromTextNode, type BriefFromTextParams } from './brief-from-text.js';
 export { projectBriefNode, type ProjectBriefParams } from './project-brief.js';
 export { siteConstraintsNode, type SiteConstraintsParams } from './site-constraints.js';
 export { spaceProgramNode, type SpaceProgramParams } from './space-program.js';
@@ -64,6 +66,7 @@ export { aiEmbedNode, type AiEmbedParams } from './ai-embed.js';
 
 /** The deterministic `aec.*` design nodes. No network, no model, no keys. */
 const AEC_NODES: readonly NodeModule<unknown>[] = [
+  briefFromTextNode,
   projectBriefNode,
   siteConstraintsNode,
   spaceProgramNode,
