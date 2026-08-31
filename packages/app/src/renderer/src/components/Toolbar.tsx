@@ -30,6 +30,7 @@ export function Toolbar(props: {
   const canRedo = useStore((s) => s.future.length > 0);
   const theme = useStore((s) => s.theme);
   const setTheme = useStore((s) => s.setTheme);
+  const openSettings = useStore((s) => s.openSettings);
   const undo = useStore((s) => s.undo);
   const redo = useStore((s) => s.redo);
 
@@ -58,6 +59,15 @@ export function Toolbar(props: {
         aria-label={theme === 'light' ? 'Switch to the dark palette' : 'Switch to the light palette'}
       >
         {theme === 'light' ? '\u263E' : '\u2600'}
+      </button>
+      {/* Next to Describe because they are one errand: describing a building
+          needs a key, and the first thing a new install lacks is the key. */}
+      <button
+        className="tb tb-keys"
+        onClick={() => openSettings('ai')}
+        title="Paste an Anthropic, OpenAI or Gemini key"
+      >
+        AI keys
       </button>
       {/* The way in for someone who has not learned the canvas yet: it runs
           the same four nodes they would otherwise wire by hand. */}

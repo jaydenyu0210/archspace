@@ -97,7 +97,12 @@ import {
 } from '@archspace/ai-gateway';
 import { useStore } from '../../store';
 import { probeAiProfile, requestEngineStatus } from '../../engine-client';
-import { groupProfilesByProvider, unboundProviders, worstReadiness } from '../../ai-groups';
+import {
+  groupProfilesByProvider,
+  unboundKeyProviders,
+  unboundProviders,
+  worstReadiness,
+} from '../../ai-groups';
 import type { SecretKeyInfo } from '../../../../shared/protocol';
 import type { SettingsPanelProps } from '../Settings';
 
@@ -249,6 +254,12 @@ export function AiPanel(props: SettingsPanelProps) {
 
   /** Per profile name, the fields being typed on its row. */
   const [edits, setEdits] = useState<Record<string, RowEdit>>({});
+  /**
+   * The model chosen on a row that has no profile yet, keyed by provider.
+   * Separate from `edits` because that is keyed by profile NAME, and these
+   * rows exist precisely because there is not one.
+   */
+  const [pendingModels, setPendingModels] = useState<Partial<Record<ProviderId, string>>>({});
   const [pending, setPending] = useState<Pending | null>(null);
 
   const [issues, setIssues] = useState<ConfigIssue[]>([]);
@@ -317,7 +328,16 @@ export function AiPanel(props: SettingsPanelProps) {
   }, [secretKeys]);
 
   const groups = useMemo(() => groupProfilesByProvider(config?.profiles ?? []), [config]);
-  const unbound = useMemo(() => unboundProviders(config?.profiles ?? []), [config]);
+  // The hosted vendors this machine has no profile for. They still get a row:
+  // "add the provider, then give it a key" is a step that exists only in the
+  // data model, and pasting a key is the whole of their setup.
+  const awaitingKey = useMemo(() => unboundKeyProviders(config?.profiles ?? []), [config]);
+  // Add: is left with the ones that genuinely need a choice — a local Ollama,
+  // a self-hosted endpoint, the offline mock.
+  const unbound = useMemo(
+    () => unboundProviders(config?.profiles ?? []).filter((p) => !awaitingKey.includes(p)),
+    [config, awaitingKey],
+  );
 
   /** Every key name this config asks the keychain for, in profile order. */
   const referencedKeys = useMemo(() => {
@@ -443,6 +463,46 @@ export function AiPanel(props: SettingsPanelProps) {
     void persist(withProfile(config, profile), `Added ${descriptor.label}.`).then((ok) => {
       if (ok) setPending(null);
     });
+  };
+
+  /**
+   * Paste a key into a provider that has no profile, and get both.
+   *
+   * One gesture, two writes, in this order: the keychain first, then
+   * `ai.yaml`. A failed keychain write must leave the config untouched —
+   * otherwise a refused secret leaves behind a profile pointing at a key that
+   * was never stored, which reads on the next launch as a binding the user
+   * broke rather than one that never happened.
+   */
+  const bindWithKey = (descriptor: ProviderDescriptor): void => {
+    if (config === null) return;
+    const ref = conventionalKeyRef(descriptor.id);
+    const value = keyDrafts[ref] ?? '';
+    if (value === '') return;
+    const model = (pendingModels[descriptor.id] ?? descriptor.suggestedModels[0] ?? '').trim();
+    if (model === '') return;
+
+    setKeyBusy(ref);
+    setSecretsError(null);
+    void window.archspace
+      .setSecret(ref, value)
+      .then(async (result) => {
+        if (!result.ok) {
+          setSecretsError(result.error);
+          return;
+        }
+        setKeyDrafts((d) => ({ ...d, [ref]: '' }));
+        loadSecretKeys();
+        const profile: ModelProfile = {
+          name: suggestProfileName(config.profiles, descriptor.id),
+          provider: descriptor.id,
+          model,
+          apiKeyRef: ref,
+        };
+        await persist(withProfile(config, profile), `${descriptor.label} is ready.`);
+      })
+      .catch((err: unknown) => setSecretsError(errText(err)))
+      .finally(() => setKeyBusy(null));
   };
 
   const removeProfile = (name: string) => {
@@ -580,7 +640,7 @@ export function AiPanel(props: SettingsPanelProps) {
     <div className="settings-panel">
       <div className="settings-section">
         <div className="settings-section-head">
-          <h3 className="settings-heading">AI Model Profiles</h3>
+          <h3 className="settings-heading">AI Keys</h3>
           {config !== null && (
             // Profiles AND providers, because the rows below are providers: a
             // file with four bindings on two providers must not read as two.
@@ -592,9 +652,10 @@ export function AiPanel(props: SettingsPanelProps) {
           )}
         </div>
         <p className="settings-section-desc">
-          A workflow names a profile; this machine says what that name means. Anything not shown
-          here — profile names, temperature, token budgets, embedding models — lives in the file
-          below and survives every edit made from this screen.
+          Paste a key and that provider is ready. The model beside it is each vendor's cheapest,
+          already chosen; the stronger ones are a click away. Keys go to the OS keychain, never
+          into a workflow — and anything not shown here, like temperature or token budgets, lives
+          in the file below and survives every edit made from this screen.
         </p>
         <div className="settings-path">
           <span className="settings-code" title={props.platform.paths.aiConfig}>
@@ -1125,6 +1186,91 @@ export function AiPanel(props: SettingsPanelProps) {
                       )}
                     </div>
                   )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* The hosted vendors with nothing bound yet, in the SAME list so they
+            read as providers rather than as an offer. Each needs one thing —
+            a key — and the model is already chosen: the catalogue's first
+            entry, which is deliberately each vendor's cheapest tier, so an
+            experiment costs what someone would have picked anyway. */}
+        {config !== null && awaitingKey.length > 0 && (
+          <div className="settings-list">
+            {awaitingKey.map((descriptor) => {
+              const ref = conventionalKeyRef(descriptor.id);
+              const model = pendingModels[descriptor.id] ?? descriptor.suggestedModels[0] ?? '';
+              const alternatives = descriptor.suggestedModels.filter((m) => m !== model.trim());
+              const typed = (keyDrafts[ref] ?? '') !== '';
+              return (
+                <div key={descriptor.id} className="settings-list-item is-muted">
+                  <div className="settings-item-head">
+                    <span className="settings-item-name">{descriptor.label}</span>
+                    <span className="badge badge--muted">no key</span>
+                    <span className="settings-item-meta">{descriptor.summary}</span>
+                  </div>
+
+                  <div className="ai-key-line">
+                    <input
+                      className="settings-input settings-input--mono"
+                      value={model}
+                      spellCheck={false}
+                      autoComplete="off"
+                      aria-label={`Model for ${descriptor.label}`}
+                      onChange={(e) =>
+                        setPendingModels((m) => ({ ...m, [descriptor.id]: e.target.value }))
+                      }
+                    />
+                  </div>
+                  {alternatives.length > 0 && (
+                    <div className="ai-key-line">
+                      {alternatives.map((alt) => (
+                        <button
+                          key={alt}
+                          className="settings-btn settings-btn--small"
+                          title={`Use ${alt}`}
+                          onClick={() => setPendingModels((m) => ({ ...m, [descriptor.id]: alt }))}
+                        >
+                          {alt}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="ai-key-line">
+                    <input
+                      className="settings-input settings-input--mono"
+                      type="password"
+                      value={keyDrafts[ref] ?? ''}
+                      spellCheck={false}
+                      autoComplete="off"
+                      aria-label={`API key for ${descriptor.label}`}
+                      disabled={!props.platform.secretsAvailable || keyBusy !== null}
+                      placeholder={`paste your ${descriptor.label} key`}
+                      onChange={(e) => setKeyDrafts((d) => ({ ...d, [ref]: e.target.value }))}
+                    />
+                    <button
+                      className="settings-btn settings-btn--small settings-btn--primary"
+                      disabled={
+                        !props.platform.secretsAvailable ||
+                        keyBusy !== null ||
+                        !typed ||
+                        model.trim() === '' ||
+                        saving
+                      }
+                      onClick={() => bindWithKey(descriptor)}
+                    >
+                      {keyBusy === ref ? (
+                        <>
+                          <span className="settings-spinner" /> Storing…
+                        </>
+                      ) : (
+                        'Save key'
+                      )}
+                    </button>
+                  </div>
                 </div>
               );
             })}

@@ -70,6 +70,28 @@ export function unboundProviders(profiles: readonly ModelProfile[]): ProviderDes
 }
 
 /**
+ * The providers whose entire setup is "paste a key".
+ *
+ * These are shown ALWAYS, bound or not, because asking someone to add a
+ * provider before they can give it a key is a step that exists only in the
+ * data model: a hosted vendor that needs a key and nothing else has no
+ * decision in it worth a click. Everything else — a local Ollama, a
+ * self-hosted endpoint — genuinely does need choosing, and stays behind Add.
+ *
+ * Derived from the catalogue rather than listed here, so a fourth hosted
+ * vendor appears on this screen the day it gets a descriptor.
+ */
+export function keyOnlyProviders(): ProviderDescriptor[] {
+  return PROVIDERS.filter((p) => p.kind === 'cloud' && p.needsApiKey && !p.needsBaseUrl);
+}
+
+/** Those of them this machine has no profile for yet. */
+export function unboundKeyProviders(profiles: readonly ModelProfile[]): ProviderDescriptor[] {
+  const bound = new Set(profiles.map((p) => p.provider));
+  return keyOnlyProviders().filter((p) => !bound.has(p.id));
+}
+
+/**
  * Worst readiness first, so one collapsed row can speak for several profiles.
  *
  * Ordered by how much it stops a run: an invalid binding fails before anything

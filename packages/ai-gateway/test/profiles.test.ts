@@ -181,7 +181,7 @@ describe('resolving no name at all', () => {
       const failure = err as AiProfileError;
       expect(failure.reason).toBe('unknown');
       expect(failure.message).toContain('did not name an AI model profile');
-      expect(failure.message).toContain('Settings → AI model profiles');
+      expect(failure.message).toContain('Settings → AI keys');
       return true;
     });
   });

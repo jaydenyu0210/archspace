@@ -440,7 +440,7 @@ describe('embeddings', () => {
     expect(failure).toBeInstanceOf(AiProfileError);
     expect((failure as AiProfileError).reason).toBe('invalid');
     expect((failure as Error).message).toContain('which has no embeddings endpoint');
-    expect((failure as Error).message).toContain('Settings → AI model profiles');
+    expect((failure as Error).message).toContain('Settings → AI keys');
   });
 
   it('refuses an embedding-capable provider that names no embedding model', async () => {

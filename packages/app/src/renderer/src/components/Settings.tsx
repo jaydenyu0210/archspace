@@ -56,7 +56,7 @@ interface TabSpec {
 
 const TABS: readonly TabSpec[] = [
   { id: 'mcp', label: 'MCP Servers' },
-  { id: 'ai', label: 'AI Model Profiles' },
+  { id: 'ai', label: 'AI Keys' },
   { id: 'plugins', label: 'Plugins' },
   { id: 'autodesk', label: 'Autodesk & Revit' },
 ];

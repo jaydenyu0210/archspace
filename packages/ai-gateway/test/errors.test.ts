@@ -196,7 +196,7 @@ describe('a machine that is not set up', () => {
   it('points every binding message at one place in the UI', () => {
     // One settings location, quoted verbatim — there is no second, friendlier
     // version of this sentence anywhere.
-    expect(BIND_HINT).toBe('Settings → AI model profiles');
+    expect(BIND_HINT).toBe('Settings → AI keys');
     for (const failure of [unknownProfileError('x'), missingKeyError('x', 'k', 'ollama')]) {
       expect(failure.message).toContain(BIND_HINT);
     }

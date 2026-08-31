@@ -372,38 +372,61 @@ await openSettingsTab('ai');
 const aiBefore = await evaluate(ws, 980, `JSON.stringify({
   counter: document.querySelector('.settings-panel .settings-item-meta')?.innerText ?? null,
   rows: document.querySelectorAll('.settings-panel .settings-list-item').length,
-  unbound: [...document.querySelectorAll('.ai-unbound button')].map(b => b.innerText),
-  modelFields: document.querySelectorAll('.ai-key-line input:not([type=password])').length,
+  names: [...document.querySelectorAll('.settings-panel .settings-item-name')].map(e => e.innerText),
   keyFields: document.querySelectorAll('.ai-key-line input[type=password]').length,
+  saveKeyButtons: [...document.querySelectorAll('.settings-panel button')].filter(b => /Save key/.test(b.innerText)).length,
+  addOffers: [...document.querySelectorAll('.ai-unbound button')].map(b => b.innerText),
 })`);
 
-if (!aiBefore?.unbound?.includes('OpenAI')) {
-  fail(`the AI panel offers no OpenAI provider to bind; unbound: ${JSON.stringify(aiBefore?.unbound ?? [])}`);
+// The three hosted vendors are on screen with a key field WITHOUT anyone
+// adding them — the whole promise of this panel. A fresh profile binds only
+// anthropic and ollama, so OpenAI and Gemini are here purely because the panel
+// puts them here.
+for (const vendor of ['Anthropic', 'OpenAI', 'Google Gemini']) {
+  if (!aiBefore?.names?.includes(vendor)) {
+    fail(`${vendor} is not on the AI keys screen; rows: ${JSON.stringify(aiBefore?.names ?? [])}`);
+  }
+  if (aiBefore.addOffers.includes(vendor)) {
+    fail(`${vendor} is still offered under "Add:" as well as having its own row`);
+  }
 }
-// The row IS the editor, so each bound single-profile provider must carry an
-// editable model field and (when it needs one) a key field. Zero of either
-// means the fold swallowed the two settings that matter.
-if ((aiBefore.modelFields ?? 0) === 0) fail('no editable model field on any provider row');
-if ((aiBefore.keyFields ?? 0) === 0) fail('no key field on any provider row');
+if ((aiBefore.keyFields ?? 0) < 3) fail(`only ${aiBefore.keyFields} key fields for three hosted vendors`);
+if ((aiBefore.saveKeyButtons ?? 0) < 2) {
+  fail(`expected a Save-key button on each unbound vendor; found ${aiBefore.saveKeyButtons}`);
+}
 
-await evaluate(ws, 981, `[...document.querySelectorAll('.ai-unbound button')].find(b => b.innerText === 'OpenAI')?.click(), '"ok"'`);
+// The cheapest tier is pre-selected, so an experiment costs what someone would
+// have chosen anyway rather than whatever happened to be first in a list.
+const models = await evaluate(ws, 981, `JSON.stringify(
+  [...document.querySelectorAll('.ai-key-line input:not([type=password])')].map(i => i.value)
+)`);
+for (const cheapest of ['claude-haiku-4-5', 'gpt-4o-mini', 'gemini-3.6-flash']) {
+  if (!models?.includes(cheapest)) {
+    fail(`${cheapest} is not the pre-selected model; saw ${JSON.stringify(models)}`);
+  }
+}
+
+// A WRITE all the way to disk, through the one provider that needs no key:
+// build the profile, validate, hand it to main, overwrite ai.yaml, re-read.
+// Nothing below the renderer can exercise that chain, and its failure mode is
+// silent — a click that looks like it did nothing.
+await evaluate(ws, 982, `[...document.querySelectorAll('.ai-unbound button')].find(b => /Mock/.test(b.innerText))?.click(), '"ok"'`);
 
 let aiAfter = null;
 for (let i = 0; i < 15 && (aiAfter?.rows ?? 0) <= (aiBefore.rows ?? 0); i++) {
   await new Promise((r) => setTimeout(r, 400));
-  aiAfter = await evaluate(ws, 982 + i, `JSON.stringify({
+  aiAfter = await evaluate(ws, 983 + i, `JSON.stringify({
     counter: document.querySelector('.settings-panel .settings-item-meta')?.innerText ?? null,
     rows: document.querySelectorAll('.settings-panel .settings-list-item').length,
     names: [...document.querySelectorAll('.settings-panel .settings-item-name')].map(e => e.innerText),
     errors: [...document.querySelectorAll('.settings-note--error')].map(e => e.innerText.slice(0, 200)),
   })`);
 }
-if (aiAfter?.errors?.length > 0) fail(`binding OpenAI reported an error: ${JSON.stringify(aiAfter.errors)}`);
+if (aiAfter?.errors?.length > 0) fail(`binding a provider reported an error: ${JSON.stringify(aiAfter.errors)}`);
 if ((aiAfter?.rows ?? 0) !== aiBefore.rows + 1) {
-  fail(`clicking OpenAI drew ${aiAfter?.rows ?? 0} provider rows, expected ${aiBefore.rows + 1} — the write was refused or never happened`);
+  fail(`adding a provider drew ${aiAfter?.rows ?? 0} rows, expected ${aiBefore.rows + 1} — the write was refused or never happened`);
 }
-if (!aiAfter.names.includes('OpenAI')) fail(`no OpenAI row after binding it; rows: ${JSON.stringify(aiAfter.names)}`);
-// The counter is the anti-collapse tell-tale: it must count profiles AND
+// The counter is the anti-collapse tell-tale: it counts profiles AND
 // providers, so a file with N bindings can never read as fewer.
 if (!/3 profiles across 3 providers/.test(aiAfter.counter ?? '')) {
   fail(`the header counter says "${aiAfter.counter}" after adding a third profile`);
@@ -846,7 +869,7 @@ console.log(
     `       opened in the light palette by default, toggled to dark and back, choice persisted\n` +
     `       settings tabs rendered — ${panels.join(', ')} (characters)\n` +
     `       consent granted in-app — palette ${before.types} -> ${consented.types} types, ${consented.reviewTypes} from the plugin\n` +
-    `       AI provider bound in one click — ${aiBefore.rows} rows -> ${aiAfter.rows}, "${aiAfter.counter}", written through to ai.yaml and read back\n` +
+    `       AI keys screen — Anthropic, OpenAI and Gemini present unbound with the cheapest model pre-selected; adding one wrote ${aiBefore.rows} -> ${aiAfter.rows} rows through to ai.yaml\n` +
     `       design chat opens — composer, ${chat.suggestions} example descriptions, closes on Escape\n` +
     `       ${(run.final ?? '').trim()}\n` +
     `       floor plan drew — ${plan.rooms} rooms, ${plan.walls} walls, ${plan.labels} labels\n` +

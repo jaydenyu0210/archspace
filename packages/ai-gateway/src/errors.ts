@@ -48,8 +48,16 @@ export class AiProviderError extends Error {
   }
 }
 
-/** The settings location every profile-binding message points at. */
-export const BIND_HINT = 'Settings → AI model profiles';
+/**
+ * The settings location every profile-binding message points at.
+ *
+ * It has to name the panel as the user sees it — the screen is called "AI
+ * keys", because pasting a key is the whole of what most people do there. The
+ * OBJECT is still a model profile and the messages still say so; only the
+ * signpost changed, and a signpost that names a screen nobody can find is
+ * worse than no signpost.
+ */
+export const BIND_HINT = 'Settings → AI keys';
 
 export function unknownProfileError(name: string): AiProfileError {
   return new AiProfileError(

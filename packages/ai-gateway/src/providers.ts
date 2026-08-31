@@ -29,6 +29,12 @@
  * that constrains it. Model line-ups move faster than releases do, so a stale
  * suggestion costs a click and never blocks a model the list has not heard of.
  *
+ * **The FIRST entry is the default**, and is deliberately the cheapest tier
+ * each vendor offers rather than the best. It is what a provider is bound to
+ * before anyone chooses, so it is what an experiment costs — and someone
+ * trying the app should not discover its price by accident. The stronger
+ * models are one click away in the same list.
+ *
  * `docsUrl` is an upstream documentation URL for every real provider; the
  * `mock` provider has no upstream, so it points at this repository's own ADR.
  */
@@ -60,7 +66,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
     needsApiKey: true,
     needsBaseUrl: false,
     defaultBaseUrl: 'https://api.anthropic.com/v1',
-    suggestedModels: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'],
+    suggestedModels: ['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5'],
     // Anthropic ships no embeddings endpoint, so a profile bound here cannot
     // serve ctx.ai.embed — validateAiConfig warns rather than letting the
     // failure surface mid-run.
@@ -74,7 +80,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
     needsApiKey: true,
     needsBaseUrl: false,
     defaultBaseUrl: 'https://api.openai.com/v1',
-    suggestedModels: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'],
+    suggestedModels: ['gpt-4o-mini', 'gpt-4o', 'o3-mini'],
     suggestedEmbeddingModels: ['text-embedding-3-small', 'text-embedding-3-large'],
     docsUrl: 'https://platform.openai.com/docs/api-reference/chat',
     summary: 'GPT models over the hosted OpenAI API. Needs an API key stored in the keychain.',

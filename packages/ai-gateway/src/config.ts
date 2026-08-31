@@ -60,6 +60,12 @@ const LOOKS_LIKE_SECRET = /^(sk-|xoxb-|ghp_|AIza)|^[A-Za-z0-9_-]{40,}$/;
  * The out-of-the-box binding: one cloud profile and one local profile, so the
  * first thing a new user sees is that both are ordinary, equal choices. The
  * cloud one ships unbound (no key) — it is a suggestion, not an activation.
+ *
+ * The cloud model is the CHEAPEST tier, matching the first entry of that
+ * provider's `suggestedModels`. It shipped as `claude-opus-5`, which meant the
+ * default binding on every fresh install was the most expensive thing the
+ * vendor sells — a price nobody chose, discovered after the fact. The stronger
+ * models are one click away on the same screen.
  */
 export function defaultAiConfig(): AiGatewayConfig {
   return {
@@ -67,7 +73,7 @@ export function defaultAiConfig(): AiGatewayConfig {
       {
         name: 'default',
         provider: 'anthropic',
-        model: 'claude-opus-5',
+        model: 'claude-haiku-4-5',
         apiKeyRef: 'ai.anthropic.api_key',
       },
       {

@@ -358,7 +358,7 @@ function buildMenu(): void {
         { role: 'about' },
         { type: 'separator' },
         { label: 'MCP Servers…', accelerator: 'CmdOrCtrl+,', click: () => sendMenu('settings-mcp') },
-        { label: 'AI Model Profiles…', click: () => sendMenu('settings-ai') },
+        { label: 'AI Keys…', click: () => sendMenu('settings-ai') },
         { label: 'Plugins…', click: () => sendMenu('settings-plugins') },
         { label: 'Autodesk & Revit…', click: () => sendMenu('settings-autodesk') },
         { type: 'separator' },

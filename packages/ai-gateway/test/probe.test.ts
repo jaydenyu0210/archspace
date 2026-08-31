@@ -95,7 +95,7 @@ describe('probe() returns a failure rather than throwing one', () => {
     expectValue(result, 'reasoning');
     expect(result.ok).toBe(false);
     expect(result.error).toContain('"reasoning" is not configured on this machine');
-    expect(result.error).toContain('Settings → AI model profiles');
+    expect(result.error).toContain('Settings → AI keys');
   });
 
   it('when no key is bound', async () => {
