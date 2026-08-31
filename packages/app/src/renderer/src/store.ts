@@ -12,6 +12,7 @@
  * which is the same class of lie the honesty rule exists to prevent.
  */
 import { create } from 'zustand';
+import { applyTheme, readTheme, writeTheme, type Theme } from './theme';
 import {
   applyEdgeChanges,
   applyNodeChanges,
@@ -138,6 +139,8 @@ export interface StoreState {
 
   settingsOpen: boolean;
   settingsTab: SettingsTab;
+  /** Which palette the window wears. Persisted; see theme.ts. */
+  theme: Theme;
 
   meta: { name: string; description?: string };
   nodes: AppNode[];
@@ -164,6 +167,7 @@ export interface StoreState {
   dismissNotice(id: number): void;
 
   openSettings(tab: SettingsTab): void;
+  setTheme(theme: Theme): void;
   setSettingsTab(tab: SettingsTab): void;
   closeSettings(): void;
 
@@ -209,6 +213,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   settingsOpen: false,
   settingsTab: 'mcp',
+  theme: readTheme(),
 
   meta: { name: 'Untitled workflow' },
   nodes: [],
@@ -242,6 +247,14 @@ export const useStore = create<StoreState>((set, get) => ({
   // fetched; the dialog is unmounted on close, so panel-local state is not
   // stale, only the engine mirrors above survive — and those are live.
   openSettings: (settingsTab) => set({ settingsOpen: true, settingsTab }),
+  // Writes the DOM attribute and the preference together: the two are one
+  // change, and a toggle that set state without either would leave the window
+  // and the store disagreeing about what the user is looking at.
+  setTheme: (theme) => {
+    applyTheme(theme, document.documentElement);
+    writeTheme(theme);
+    set({ theme });
+  },
   setSettingsTab: (settingsTab) => set({ settingsTab }),
   closeSettings: () => set({ settingsOpen: false }),
 

@@ -31,6 +31,7 @@
  * ceiling, which would just trade a stall for a refusal.
  */
 import { useEffect, useRef, useState } from 'react';
+import { useStore } from '../store';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { IfcAPI } from 'web-ifc';
@@ -101,6 +102,7 @@ function materialFor(category: IfcCategory): THREE.Material {
   switch (category) {
     case 'wall':
       return new THREE.MeshLambertMaterial({ color: 0x8b95a3, side: THREE.DoubleSide });
+
     case 'door':
       // Doors are free-standing solids overlapping their walls (the writer
       // cuts no openings), so coplanar faces are expected; the polygon offset
@@ -126,6 +128,9 @@ function materialFor(category: IfcCategory): THREE.Material {
 }
 
 export function IfcView({ asset }: { asset: AssetRef }) {
+  // Read from the store rather than the DOM, so toggling the theme rebuilds
+  // the scene instead of leaving a dark-lit model on a light page.
+  const theme = useStore((s) => s.theme);
   const [state, setState] = useState<ViewState>({ t: 'loading' });
   const [filter, setFilter] = useState<IfcViewFilter>({ storey: null, showSpaces: false });
   const mountRef = useRef<HTMLDivElement>(null);
@@ -200,7 +205,18 @@ export function IfcView({ asset }: { asset: AssetRef }) {
     el.appendChild(renderer.domElement);
 
     const world = new THREE.Scene();
-    world.add(new THREE.HemisphereLight(0xbfd4e6, 0x11151a, 1.1));
+    // Sky and GROUND, and the ground is what the theme changes. The renderer
+    // is alpha:true so the page shows through, which means on paper a
+    // near-black bounce light makes every downward face read as soot — the
+    // model looks dirty rather than lit. Lifting the ground colour to match
+    // the sheet is the whole adjustment; the sky stays cool in both.
+    world.add(
+      new THREE.HemisphereLight(
+        theme === 'light' ? 0xdfe7ef : 0xbfd4e6,
+        theme === 'light' ? 0xcfc9bd : 0x11151a,
+        theme === 'light' ? 1.25 : 1.1,
+      ),
+    );
 
     const bounds: NonNullable<IfcSceneData['bounds']> =
       data.bounds ?? { min: [0, 0, 0], max: [1, 1, 1] };
@@ -276,7 +292,7 @@ export function IfcView({ asset }: { asset: AssetRef }) {
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [state]);
+  }, [state, theme]);
 
   // Filters flip mesh visibility in place — no geometry rebuild, no reparse.
   useEffect(() => {

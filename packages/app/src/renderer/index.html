@@ -5,7 +5,10 @@
     <title>Archspace</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   </head>
-  <body style="background: #101318">
+  <!-- Matches --bg0 in the LIGHT palette, which is the default. This paints
+       the first frame before styles.css arrives; theme.ts sets data-theme on
+       the root a moment later and everything after that comes from tokens. -->
+  <body style="background: #e8e5de">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

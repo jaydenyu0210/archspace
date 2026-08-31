@@ -116,7 +116,7 @@ export function Canvas() {
           pannable
           zoomable
           bgColor="var(--bg1)"
-          maskColor="rgba(10, 13, 17, 0.72)"
+          maskColor="var(--minimap-mask)"
           nodeColor="var(--bg3)"
           nodeStrokeColor="var(--line-strong)"
         />

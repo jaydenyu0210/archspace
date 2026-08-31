@@ -239,6 +239,51 @@ async function evaluate(socket, id, expression, { commandLineAPI = false } = {})
 }
 
 /**
+ * The palette, and that it is the one a first launch is promised.
+ *
+ * `theme.ts` states light as the default and deliberately does NOT consult
+ * `prefers-color-scheme`, so this profile is fresh and must open light on any
+ * machine, whatever the developer's OS is set to — which is exactly the kind
+ * of claim that quietly stops being true. The toggle is checked for the round
+ * trip, including that the choice was written where the next launch reads it.
+ */
+const themeStart = await evaluate(ws, 960, `JSON.stringify({
+  theme: document.documentElement.dataset.theme,
+  colorScheme: document.documentElement.style.colorScheme,
+  bg0: getComputedStyle(document.documentElement).getPropertyValue('--bg0').trim(),
+  stored: localStorage.getItem('archspace.theme'),
+  toggle: !!document.querySelector('.tb-theme'),
+})`);
+if (themeStart?.theme !== 'light') fail(`a fresh profile opened in "${themeStart?.theme}" — light is the stated default`);
+if (themeStart.stored !== null) fail(`a fresh profile already had a stored theme: ${themeStart.stored}`);
+if (!themeStart.toggle) fail('no theme toggle in the toolbar');
+// A token, not just the attribute: the attribute is set by JS and the palette
+// by CSS, and only one of those failing is the interesting case.
+if (themeStart.bg0.toLowerCase() !== '#e8e5de') fail(`--bg0 is ${themeStart.bg0} in the light theme`);
+
+await evaluate(ws, 961, `document.querySelector('.tb-theme').click(), '"ok"'`);
+await new Promise((r) => setTimeout(r, 400));
+const themeDark = await evaluate(ws, 962, `JSON.stringify({
+  theme: document.documentElement.dataset.theme,
+  colorScheme: document.documentElement.style.colorScheme,
+  bg0: getComputedStyle(document.documentElement).getPropertyValue('--bg0').trim(),
+  stored: localStorage.getItem('archspace.theme'),
+  minimapMask: (() => { const m = document.querySelector('.react-flow__minimap-mask'); return m ? getComputedStyle(m).fill : null; })(),
+})`);
+if (themeDark?.theme !== 'dark') fail('the toggle did not switch to the dark palette');
+if (themeDark.bg0.toLowerCase() !== '#0c0f13') fail(`--bg0 is ${themeDark.bg0} after switching to dark`);
+if (themeDark.colorScheme !== 'dark') fail('color-scheme did not follow the theme, so native widgets stay light');
+if (themeDark.stored !== 'dark') fail(`the choice was not persisted: ${themeDark.stored}`);
+// React Flow ships its own palette; the minimap mask was the one surface that
+// stayed near-black through a theme swap because it came from a prop.
+if (!/^rgba?\(/.test(themeDark.minimapMask ?? '')) fail(`the minimap mask did not resolve: ${themeDark.minimapMask}`);
+
+await evaluate(ws, 963, `document.querySelector('.tb-theme').click(), '"ok"'`);
+await new Promise((r) => setTimeout(r, 400));
+const themeBack = await evaluate(ws, 964, `JSON.stringify({ theme: document.documentElement.dataset.theme })`);
+if (themeBack?.theme !== 'light') fail('the toggle does not go back');
+
+/**
  * Open each settings tab and confirm it drew something.
  *
  * These four panels are the largest surface in the app and the one no unit test
@@ -798,6 +843,7 @@ if (ui.canvasNodes === 0) {
 console.log(
   `smoke: UI rendered — ${ui.panels.length} panels, ${ui.nodeTypes} node types in the palette\n` +
     `       opened "${ui.docName}" with ${ui.canvasNodes} nodes on the canvas\n` +
+    `       opened in the light palette by default, toggled to dark and back, choice persisted\n` +
     `       settings tabs rendered — ${panels.join(', ')} (characters)\n` +
     `       consent granted in-app — palette ${before.types} -> ${consented.types} types, ${consented.reviewTypes} from the plugin\n` +
     `       AI provider bound in one click — ${aiBefore.rows} rows -> ${aiAfter.rows}, "${aiAfter.counter}", written through to ai.yaml and read back\n` +

@@ -16,10 +16,15 @@ import { createRoot } from 'react-dom/client';
 import { ReactFlowProvider } from '@xyflow/react';
 import App from './App';
 import { initEngineClient } from './engine-client';
+import { applyTheme, readTheme } from './theme';
 import '@xyflow/react/dist/style.css';
 import './styles.css';
 
 initEngineClient();
+
+// Before the first render, so the window never paints one theme and then
+// repaints in the other.
+applyTheme(readTheme(), document.documentElement);
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <ReactFlowProvider>
