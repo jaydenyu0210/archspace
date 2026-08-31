@@ -400,7 +400,7 @@ if ((aiBefore.saveKeyButtons ?? 0) < 2) {
 const models = await evaluate(ws, 981, `JSON.stringify(
   [...document.querySelectorAll('.ai-key-line input:not([type=password])')].map(i => i.value)
 )`);
-for (const cheapest of ['claude-haiku-4-5', 'gpt-4o-mini', 'gemini-3.6-flash']) {
+for (const cheapest of ['claude-haiku-4-5', 'gpt-4.1-nano', 'gemini-3.6-flash']) {
   if (!models?.includes(cheapest)) {
     fail(`${cheapest} is not the pre-selected model; saw ${JSON.stringify(models)}`);
   }

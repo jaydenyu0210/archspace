@@ -80,7 +80,11 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
     needsApiKey: true,
     needsBaseUrl: false,
     defaultBaseUrl: 'https://api.openai.com/v1',
-    suggestedModels: ['gpt-4o-mini', 'gpt-4o', 'o3-mini'],
+    // Cheapest first, and `nano` really is cheaper than `mini` — roughly
+    // $0.10 against $0.15 per million input tokens. `o3-mini` is a reasoning
+    // model and costs multiples of either, so it is not on this ladder: the
+    // list is "cheap, then capable", not every id the vendor sells.
+    suggestedModels: ['gpt-4.1-nano', 'gpt-4.1-mini', 'gpt-4o'],
     suggestedEmbeddingModels: ['text-embedding-3-small', 'text-embedding-3-large'],
     docsUrl: 'https://platform.openai.com/docs/api-reference/chat',
     summary: 'GPT models over the hosted OpenAI API. Needs an API key stored in the keychain.',
