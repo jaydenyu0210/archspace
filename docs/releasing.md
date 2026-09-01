@@ -195,6 +195,37 @@ that step are deliberate and worth not undoing:
 
 A `Remove the API key` step runs with `if: always()`.
 
+### 2.3 Installing the five secrets
+
+Obtaining the values is §2.0–§2.2; putting them where the workflow reads them is
+this. Repository → *Settings → Secrets and variables → Actions* does it in a
+browser, but the CLI is less error-prone for the two base64 blobs, because it
+never puts them through a text field that might add a newline:
+
+```sh
+base64 -i DeveloperID.p12          | gh secret set CSC_LINK
+base64 -i AuthKey_XXXXXXXXXX.p8    | gh secret set APPLE_API_KEY
+gh secret set CSC_KEY_PASSWORD                       # prompts; input is hidden
+gh secret set APPLE_API_KEY_ID  --body "XXXXXXXXXX"  # the 10 chars in the filename
+gh secret set APPLE_API_ISSUER  --body "<issuer-uuid>"
+```
+
+Then check that all five are there, because **a missing one silently downgrades
+the whole run** to unsigned-and-unpublished rather than failing it:
+
+```sh
+gh secret list        # expect exactly these five names
+```
+
+`gh secret list` shows names and update times, never values — GitHub cannot
+show you a secret after it is stored, and neither can this repo. If you are
+unsure whether one is right, set it again; there is no way to read it back and
+compare.
+
+Delete the `.p12` and the `.p8` from disk afterwards. The secret store is the
+copy that matters, and a private key in a Downloads folder is the one place
+this whole procedure was designed to avoid.
+
 ---
 
 ## 3. Hardened runtime and entitlements

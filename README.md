@@ -41,7 +41,9 @@ pnpm dev
 
 That is the whole thing. On Windows it launches Electron's own signed binary, so
 Smart App Control has nothing to object to — you get the identical app, and a
-newer one than the download.
+newer one than the download. **Windows has a few extra wrinkles** (execution
+policy, path length, the Electron download): they are all in
+[docs/install-windows.md](docs/install-windows.md).
 
 The first `pnpm dev` prints `Downloading Electron binary...` and takes an extra
 minute — Electron fetches its ~100 MB runtime on first use. If that download
@@ -58,6 +60,9 @@ Windows will object, and which box you get decides whether you can proceed:
 |---|---|
 | **"Windows protected your PC"** (blue, SmartScreen) | **More info → Run anyway.** |
 | **"Smart App Control blocked an app that may be unsafe"** | Nothing — there is no override. Run from source instead. |
+
+Step-by-step Windows instructions, including this table and what to do about
+each dialog, are in [docs/install-windows.md](docs/install-windows.md).
 
 Smart App Control is a Windows 11 feature that refuses apps it cannot attribute
 to a known publisher. Unlike SmartScreen it offers no way through: only a
